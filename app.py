@@ -1,11 +1,14 @@
 import streamlit as st
 import os
 import time
+import urllib.parse
+# Mantendo o import conforme seu código atual (service.service)
 from service.service import run_draw, clean_sent_folder, send_emails_backend
 from service.database import create_room, get_room_status, add_participant, get_participants, close_room
 
 st.set_page_config(page_title="Amigo Secreto", page_icon="🎁", layout="centered")
 
+# --- CREDENCIAIS ---
 sender_email = os.getenv("EMAIL_REMETENTE")
 sender_pass = os.getenv("EMAIL_PASSWORD")
 
@@ -19,6 +22,7 @@ if not sender_email or not sender_pass:
 params = st.query_params
 current_room = params.get("sala", None)
 
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("Menu")
     
@@ -36,6 +40,9 @@ with st.sidebar:
 
 st.title("🎅 Amigo Secreto Conectado ☁️")
 
+# ===================================================
+# TELA 1: HOME PAGE
+# ===================================================
 if not current_room:
     st.header("Painel de Controle")
     st.info("👋 Visitantes devem usar o link compartilhado pelo organizador.")
@@ -57,10 +64,8 @@ if not current_room:
     with col2:
         st.subheader("Sou o Organizador")
         st.caption("Já tem uma sala? Digite o código para gerenciar.")
-        
         with st.form("admin_login"):
             code_input = st.text_input("Código da Sala:").upper()
-            
             if st.form_submit_button("Acessar Painel"):
                 if not code_input:
                     st.warning("Digite o código.")
@@ -73,6 +78,9 @@ if not current_room:
                     else:
                         st.error("Sala não encontrada.")
 
+# ===================================================
+# TELA 2: DENTRO DA SALA
+# ===================================================
 else:
     room_status = get_room_status(current_room)
     
@@ -84,17 +92,84 @@ else:
         st.stop()
 
     if st.session_state.get('is_master'):
-
+        # ==========================
+        # VISÃO DO MESTRE
+        # ==========================
         st.success(f"👑 PAINEL DO ORGANIZADOR | Sala: **{current_room}**")
         
-        link = f"https://seu-app.streamlit.app/?sala={current_room}"
-        st.text_input("Mande este link para o grupo (Convidados):", link)
+        # Link Base (Ajuste para seu link real de produção)
+        base_url = f"https://share.streamlit.io/seu-usuario/seu-repo?sala={current_room}"
+        
+        msg_texto = f"Participe do meu Amigo Secreto! Código da Sala: {current_room}. Entre aqui: {base_url}"
+        msg_encoded = urllib.parse.quote(msg_texto)
+        url_encoded = urllib.parse.quote(base_url)
+        
+        st.markdown("### 📤 Enviar Convite:")
+        
+        # CSS AJUSTADO: Texto Preto e Fundos Claros
+        st.markdown(
+            f"""
+            <style>
+                .share-container {{
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 12px;
+                    margin-bottom: 20px;
+                }}
+                .share-btn {{
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: auto;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    text-decoration: none;
+                    font-weight: 900; /* Negrito Forte */
+                    font-family: sans-serif;
+                    font-size: 16px;
+                    color: #000000 !important; /* TEXTO PRETO */
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    transition: transform 0.2s, opacity 0.2s;
+                    border: 1px solid rgba(0,0,0,0.1);
+                }}
+                .share-btn:hover {{
+                    opacity: 0.9;
+                    transform: translateY(-2px);
+                    text-decoration: none;
+                }}
+                
+                /* CORES DE FUNDO CLARAS (Para destacar o texto preto) */
+                .wa {{ background-color: #86EFAC; }} /* WhatsApp Verde Claro */
+                .fb {{ background-color: #93C5FD; }} /* Facebook Azul Claro */
+                .tw {{ background-color: #E5E7EB; }} /* Twitter Cinza Claro */
+                .tg {{ background-color: #7DD3FC; }} /* Telegram Azul Celeste */
+            </style>
+
+            <div class="share-container">
+                <a href="https://wa.me/?text={msg_encoded}" target="_blank" class="share-btn wa">
+                    📱 WhatsApp
+                </a>
+                <a href="https://www.facebook.com/sharer/sharer.php?u={url_encoded}" target="_blank" class="share-btn fb">
+                    📘 Facebook
+                </a>
+                <a href="https://twitter.com/intent/tweet?text={msg_encoded}" target="_blank" class="share-btn tw">
+                    ✖️ Twitter
+                </a>
+                <a href="https://t.me/share/url?url={url_encoded}&text={msg_encoded}" target="_blank" class="share-btn tg">
+                    ✈️ Telegram
+                </a>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+        
+        st.caption("Para Instagram ou outras redes, copie o texto abaixo:")
+        st.code(msg_texto, language="text")
         
         st.divider()
         
         if room_status == "OPEN":
             with st.expander("📝 Quero participar do sorteio também", expanded=False):
-                st.caption("Cadastre-se aqui para seu nome entrar na lista do sorteio.")
                 with st.form("master_join"):
                     c1, c2 = st.columns(2)
                     m_name = c1.text_input("Seu Nome")
@@ -138,6 +213,9 @@ else:
             st.warning("Aguardando participantes entrarem pelo link...")
 
     else:
+        # ==========================
+        # VISÃO DO CONVIDADO
+        # ==========================
         st.info(f"📍 Você está na sala: **{current_room}**")
         
         if room_status == "CLOSED":
@@ -156,3 +234,5 @@ else:
                         st.rerun()
                     else:
                         st.error("Preencha todos os campos.")
+        
+        st.divider()
