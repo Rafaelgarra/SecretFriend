@@ -89,7 +89,6 @@ def send_emails_backend(draw_dict, email_map, sender, password, test_mode):
                 
                 dest_email = email_map[giver]
                 
-                # Cria o E-mail HTML
                 msg = EmailMessage()
                 msg["Subject"] = EMAIL_SUBJECT
                 msg["From"] = sender
