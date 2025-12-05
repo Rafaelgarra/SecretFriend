@@ -2,13 +2,11 @@ import streamlit as st
 import os
 import time
 import urllib.parse
-# Mantendo o import conforme seu código atual (service.service)
 from service.service import run_draw, clean_sent_folder, send_emails_backend
 from service.database import create_room, get_room_status, add_participant, get_participants, close_room
 
 st.set_page_config(page_title="Amigo Secreto", page_icon="🎁", layout="centered")
 
-# --- CREDENCIAIS ---
 sender_email = os.getenv("EMAIL_REMETENTE")
 sender_pass = os.getenv("EMAIL_PASSWORD")
 
@@ -22,7 +20,6 @@ if not sender_email or not sender_pass:
 params = st.query_params
 current_room = params.get("sala", None)
 
-# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("Menu")
     
@@ -40,9 +37,6 @@ with st.sidebar:
 
 st.title("🎅 Amigo Secreto Conectado ☁️")
 
-# ===================================================
-# TELA 1: HOME PAGE
-# ===================================================
 if not current_room:
     st.header("Painel de Controle")
     st.info("👋 Visitantes devem usar o link compartilhado pelo organizador.")
@@ -78,9 +72,6 @@ if not current_room:
                     else:
                         st.error("Sala não encontrada.")
 
-# ===================================================
-# TELA 2: DENTRO DA SALA
-# ===================================================
 else:
     room_status = get_room_status(current_room)
     
@@ -92,13 +83,10 @@ else:
         st.stop()
 
     if st.session_state.get('is_master'):
-        # ==========================
-        # VISÃO DO MESTRE
-        # ==========================
+
         st.success(f"👑 PAINEL DO ORGANIZADOR | Sala: **{current_room}**")
         
-        # Link Base (Ajuste para seu link real de produção)
-        base_url = f"https://share.streamlit.io/seu-usuario/seu-repo?sala={current_room}"
+        base_url = f"https://appfriend-dyhgtzh8udytssfjcul2rh.streamlit.app/?sala={current_room}"
         
         msg_texto = f"Participe do meu Amigo Secreto! Código da Sala: {current_room}. Entre aqui: {base_url}"
         msg_encoded = urllib.parse.quote(msg_texto)
@@ -106,7 +94,6 @@ else:
         
         st.markdown("### 📤 Enviar Convite:")
         
-        # CSS AJUSTADO: Texto Preto e Fundos Claros
         st.markdown(
             f"""
             <style>
@@ -213,9 +200,6 @@ else:
             st.warning("Aguardando participantes entrarem pelo link...")
 
     else:
-        # ==========================
-        # VISÃO DO CONVIDADO
-        # ==========================
         st.info(f"📍 Você está na sala: **{current_room}**")
         
         if room_status == "CLOSED":
