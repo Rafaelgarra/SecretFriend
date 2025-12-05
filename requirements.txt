@@ -2,3 +2,4 @@ streamlit
 pandas
 oauth2client
 gspread
+cryptography
