@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 
-from backend import run_draw, clean_sent_folder, send_emails_backend
+from service.service import run_draw, clean_sent_folder, send_emails_backend
 
 st.set_page_config(
     page_title="Amigo Secreto",
