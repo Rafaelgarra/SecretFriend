@@ -56,7 +56,7 @@ if not current_room:
             if not sender_pass:
                 st.error("Erro de configuração de e-mail.")
             else:
-                with st.spinner("Gerando sala..."):
+                with st.spinner("Criando sala..."):
                     new_code = create_room()
                     st.session_state['is_master'] = True
                     st.query_params["sala"] = new_code
@@ -71,13 +71,14 @@ if not current_room:
                 if not code_input:
                     st.warning("Digite o código.")
                 else:
-                    status = get_room_status(code_input)
-                    if status:
-                        st.session_state['is_master'] = True
-                        st.query_params["sala"] = code_input
-                        st.rerun()
-                    else:
-                        st.error("Sala não encontrada.")
+                    with st.spinner("Buscando sala..."):
+                        status = get_room_status(code_input)
+                        if status:
+                            st.session_state['is_master'] = True
+                            st.query_params["sala"] = code_input
+                            st.rerun()
+                        else:
+                            st.error("Sala não encontrada.")
 
 else:
     room_status = get_room_status(current_room)
@@ -133,23 +134,24 @@ else:
                         if not m_name or not m_email:
                             st.error("Preencha todos os campos.")
                         elif not is_valid_email(m_email):
-                            st.error("Por favor, insira um e-mail válido (ex: nome@gmail.com)")
+                            st.error("E-mail inválido.")
                         else:
-                            current_data = get_participants(current_room)
-                            clean_email = m_email.strip().lower()
-                            clean_name = m_name.strip()
-                            db_emails = [e.strip().lower() for e in current_data.values()]
-                            db_names = [n.strip().lower() for n in current_data.keys()]
+                            with st.spinner("Validando e salvando..."):
+                                current_data = get_participants(current_room)
+                                clean_email = m_email.strip().lower()
+                                clean_name = m_name.strip()
+                                db_emails = [e.strip().lower() for e in current_data.values()]
+                                db_names = [n.strip().lower() for n in current_data.keys()]
 
-                            if clean_email in db_emails:
-                                st.error("E-mail já cadastrado!")
-                            elif clean_name.lower() in db_names:
-                                st.error("Nome já em uso! Use sobrenome.")
-                            else:
-                                add_participant(current_room, clean_name, clean_email)
-                                st.success("Você entrou na lista!")
-                                time.sleep(1)
-                                st.rerun()
+                                if clean_email in db_emails:
+                                    st.error("E-mail já cadastrado!")
+                                elif clean_name.lower() in db_names:
+                                    st.error("Nome já em uso! Use sobrenome.")
+                                else:
+                                    add_participant(current_room, clean_name, clean_email)
+                                    st.success("Você entrou na lista!")
+                                    time.sleep(1)
+                                    st.rerun()
 
         st.subheader("Participantes Confirmados")
         participants = get_participants(current_room)
@@ -167,15 +169,16 @@ else:
                         st.error("Mínimo de 2 pessoas!")
                     else:
                         close_room(current_room)
-                        st.info("Sorteando e enviando e-mails...")
-                        draw_result = run_draw(participants.keys())
-                        sent_list = send_emails_backend(draw_result, participants, sender_email, sender_pass, test_mode)
-                        if not test_mode:
-                            clean_sent_folder(sender_email, sender_pass, sent_list)
-                        st.balloons()
-                        st.success("Sorteio Realizado!")
-                        time.sleep(3)
-                        st.rerun()
+                        with st.spinner("Realizando sorteio e enviando e-mails..."):
+                            draw_result = run_draw(participants.keys())
+                            sent_list = send_emails_backend(draw_result, participants, sender_email, sender_pass, test_mode)
+                            if not test_mode:
+                                clean_sent_folder(sender_email, sender_pass, sent_list)
+                            
+                            st.balloons()
+                            st.success("Sorteio Realizado!")
+                            time.sleep(3)
+                            st.rerun()
         else:
             st.warning("Aguardando participantes entrarem pelo link...")
 
@@ -229,17 +232,18 @@ else:
                     elif not is_valid_email(g_email):
                         st.error("E-mail inválido. Verifique se digitou corretamente.")
                     else:
-                        existing_data = get_participants(current_room)
-                        clean_email = g_email.strip().lower()
-                        clean_name = g_name.strip()
-                        db_emails = [e.strip().lower() for e in existing_data.values()]
-                        db_names = [n.strip().lower() for n in existing_data.keys()]
-                        
-                        if clean_email in db_emails:
-                            st.error("❌ Este e-mail já está cadastrado nesta sala!")
-                        elif clean_name.lower() in db_names:
-                            st.error("❌ Este nome já existe! Adicione um sobrenome.")
-                        else:
-                            add_participant(current_room, clean_name, clean_email)
-                            st.session_state[f"joined_{current_room}"] = True
-                            st.rerun()
+                        with st.spinner("Carregando..."):
+                            existing_data = get_participants(current_room)
+                            clean_email = g_email.strip().lower()
+                            clean_name = g_name.strip()
+                            db_emails = [e.strip().lower() for e in existing_data.values()]
+                            db_names = [n.strip().lower() for n in existing_data.keys()]
+                            
+                            if clean_email in db_emails:
+                                st.error("❌ Este e-mail já está cadastrado nesta sala!")
+                            elif clean_name.lower() in db_names:
+                                st.error("❌ Este nome já existe! Adicione um sobrenome.")
+                            else:
+                                add_participant(current_room, clean_name, clean_email)
+                                st.session_state[f"joined_{current_room}"] = True
+                                st.rerun()
