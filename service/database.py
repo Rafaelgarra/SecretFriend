@@ -1,91 +1,170 @@
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import streamlit as st
-import random
+import secrets
 import string
-from cryptography.fernet import Fernet
+import hashlib
+import hmac
+import json
 import os
+from cryptography.fernet import Fernet, InvalidToken
 
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+# Colunas da aba "Salas": Código | Status | Hash da chave | Nome | Data | Sorteio (criptografado)
+COL_STATUS = 2
+COL_ADMIN_HASH = 3
+COL_NAME = 4
+COL_DATE = 5
+COL_DRAW = 6
 
+CODE_CHARS = string.ascii_uppercase + string.digits
+KEY_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sem 0/O e 1/I para evitar confusão
+
+
+def get_secret(name):
+    value = os.getenv(name)
+    if value:
+        return value
+    try:
+        return st.secrets.get(name)
+    except Exception:
+        return None
+
+
+@st.cache_resource
 def get_cipher():
-    key = os.getenv("ENCRYPTION_KEY") or st.secrets.get("ENCRYPTION_KEY")
+    key = get_secret("ENCRYPTION_KEY")
     if not key:
         raise ValueError("Chave de criptografia (ENCRYPTION_KEY) não encontrada!")
     return Fernet(key)
 
+
 def encrypt_data(text):
     if not text: return ""
-    cipher = get_cipher()
-    return cipher.encrypt(text.encode()).decode()
+    return get_cipher().encrypt(text.encode()).decode()
+
 
 def decrypt_data(text):
     if not text: return ""
     try:
-        cipher = get_cipher()
-        return cipher.decrypt(text.encode()).decode()
-    except:
+        return get_cipher().decrypt(text.encode()).decode()
+    except InvalidToken:
+        # Registros antigos foram salvos sem criptografia
         return text
 
+
+@st.cache_resource(ttl=3600)
 def get_connection():
     try:
         creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-    except:
-        creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", SCOPE)
-    
-    client = gspread.authorize(creds)
-    sheet = client.open("AmigoSecretoDB") 
-    return sheet
+    except Exception:
+        creds_dict = None
 
-def create_room():
-    sheet = get_connection()
-    rooms_sheet = sheet.worksheet("Salas")
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    rooms_sheet.append_row([code, "OPEN"])
-    return code
+    if creds_dict:
+        client = gspread.service_account_from_dict(creds_dict)
+    else:
+        client = gspread.service_account(filename="service_account.json")
+    return client.open("AmigoSecretoDB")
 
-def get_room_status(code):
-    sheet = get_connection()
-    rooms_sheet = sheet.worksheet("Salas")
-    try:
-        cell = rooms_sheet.find(code)
-        if cell:
-            return rooms_sheet.cell(cell.row, 2).value
-    except:
-        return None
+
+def _rooms_sheet():
+    return get_connection().worksheet("Salas")
+
+
+def _participants_sheet():
+    return get_connection().worksheet("Participantes")
+
+
+def _find_room_row(rooms_sheet, code):
+    codes = rooms_sheet.col_values(1)
+    if code in codes:
+        return codes.index(code) + 1
     return None
 
-def close_room(code):
-    sheet = get_connection()
-    rooms_sheet = sheet.worksheet("Salas")
-    try:
-        cell = rooms_sheet.find(code)
-        if cell:
-            rooms_sheet.update_cell(cell.row, 2, "CLOSED")
-    except:
-        pass
+
+def _hash_admin_key(code, key):
+    return hashlib.sha256(f"{code}:{key.strip().upper()}".encode()).hexdigest()
+
+
+def create_room(name="", draw_date=""):
+    """Cria a sala e devolve (código, chave do organizador)."""
+    rooms_sheet = _rooms_sheet()
+    existing = set(rooms_sheet.col_values(1))
+
+    code = ''.join(secrets.choice(CODE_CHARS) for _ in range(4))
+    while code in existing:
+        code = ''.join(secrets.choice(CODE_CHARS) for _ in range(4))
+
+    admin_key = ''.join(secrets.choice(KEY_CHARS) for _ in range(8))
+    admin_key = f"{admin_key[:4]}-{admin_key[4:]}"
+
+    rooms_sheet.append_row([code, "OPEN", _hash_admin_key(code, admin_key), name, draw_date, ""])
+    return code, admin_key
+
+
+def get_room(code):
+    """Retorna os dados da sala ou None se ela não existir."""
+    if not code:
+        return None
+    rooms_sheet = _rooms_sheet()
+    row = _find_room_row(rooms_sheet, code)
+    if not row:
+        return None
+
+    values = rooms_sheet.row_values(row)
+    values += [""] * (COL_DRAW - len(values))
+    return {
+        "code": code,
+        "status": values[COL_STATUS - 1] or "OPEN",
+        "admin_hash": values[COL_ADMIN_HASH - 1],
+        "name": values[COL_NAME - 1],
+        "date": values[COL_DATE - 1],
+        "has_draw": bool(values[COL_DRAW - 1]),
+    }
+
+
+def verify_admin(room, key):
+    """Confere a chave do organizador. Salas antigas, criadas sem chave, continuam acessíveis só pelo código."""
+    if not room["admin_hash"]:
+        return True
+    if not key:
+        return False
+    return hmac.compare_digest(room["admin_hash"], _hash_admin_key(room["code"], key))
+
+
+def close_room(code, draw_result):
+    """Fecha as inscrições e guarda o sorteio criptografado para permitir reenvios."""
+    rooms_sheet = _rooms_sheet()
+    row = _find_room_row(rooms_sheet, code)
+    if not row:
+        raise ValueError(f"Sala {code} não encontrada.")
+
+    enc_draw = encrypt_data(json.dumps(draw_result, ensure_ascii=False))
+    rooms_sheet.batch_update([
+        {"range": gspread.utils.rowcol_to_a1(row, COL_STATUS), "values": [["CLOSED"]]},
+        {"range": gspread.utils.rowcol_to_a1(row, COL_DRAW), "values": [[enc_draw]]},
+    ])
+
+
+def get_draw(code):
+    rooms_sheet = _rooms_sheet()
+    row = _find_room_row(rooms_sheet, code)
+    if not row:
+        return None
+    enc_draw = rooms_sheet.cell(row, COL_DRAW).value
+    if not enc_draw:
+        return None
+    return json.loads(decrypt_data(enc_draw))
+
 
 def add_participant(room_code, name, email):
-    sheet = get_connection()
-    participants_sheet = sheet.worksheet("Participantes")
-    
-    enc_name = encrypt_data(name)
-    enc_email = encrypt_data(email)
-    
-    participants_sheet.append_row([room_code, enc_name, enc_email])
+    _participants_sheet().append_row([room_code, encrypt_data(name), encrypt_data(email)])
+
 
 def get_participants(room_code):
-    sheet = get_connection()
-    participants_sheet = sheet.worksheet("Participantes")
-    all_rows = participants_sheet.get_all_values()
-    
+    all_rows = _participants_sheet().get_all_values()
+
     participants_map = {}
     for row in all_rows[1:]:
-        if row[0] == room_code:
-            dec_name = decrypt_data(row[1])
-            dec_email = decrypt_data(row[2])
-            
-            participants_map[dec_name] = dec_email
-            
+        if len(row) >= 3 and row[0] == room_code:
+            participants_map[decrypt_data(row[1])] = decrypt_data(row[2])
+
     return participants_map

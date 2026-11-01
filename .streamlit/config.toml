@@ -1,0 +1,14 @@
+[theme]
+base = "light"
+primaryColor = "#C62828"
+backgroundColor = "#FFF8E6"
+secondaryBackgroundColor = "#FFFDF7"
+textColor = "#1F2937"
+linkColor = "#C62828"
+redColor = "#C62828"
+greenColor = "#0E7C59"
+yellowColor = "#D4A017"
+borderColor = "#EADBB8"
+showWidgetBorder = true
+baseRadius = "0.75rem"
+font = "Nunito:https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap"
