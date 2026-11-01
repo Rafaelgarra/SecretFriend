@@ -57,7 +57,7 @@ CSS = f"""
   background: repeating-linear-gradient(90deg, {RED} 0 40px, {GOLD} 40px 52px, {GREEN} 52px 92px, {GOLD} 92px 104px);
 }}
 header[data-testid="stHeader"] {{ background: transparent; }}
-.block-container {{ max-width: 1120px; padding-top: 2.5rem; padding-bottom: 3rem; }}
+.block-container {{ max-width: 1120px; padding-top: 3.5rem; padding-bottom: 3rem; }}
 [data-testid="stForm"] {{ border: none; padding: 0; }}
 
 /* Cabeçalho */
@@ -126,8 +126,9 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 .asc-avatar {{ width: 34px; height: 34px; border-radius: 50%; background: {RED}; color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; flex: none; }}
 .asc-person:nth-child(3n+2) .asc-avatar {{ background: {GREEN}; }}
 .asc-person:nth-child(3n) .asc-avatar {{ background: {GOLD}; }}
-.asc-person b {{ color: {NAVY}; }}
-.asc-person span {{ color: #6B7280; font-size: .9rem; margin-left: auto; }}
+.asc-person > div:last-child {{ min-width: 0; display: flex; flex-direction: column; }}
+.asc-person b {{ color: {NAVY}; overflow-wrap: anywhere; }}
+.asc-person span {{ color: #6B7280; font-size: .85rem; overflow-wrap: anywhere; }}
 
 /* Avisos */
 .asc-note {{ border-radius: 18px; padding: 22px; text-align: center; }}
@@ -143,15 +144,39 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 
 /* Recursos */
 .asc-features-title {{ font-size: 1.5rem; font-weight: 900; color: {NAVY}; margin: 28px 0 12px; }}
-.asc-features {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }}
-.asc-feature {{ display: flex; gap: 12px; align-items: flex-start; background: rgba(255,255,255,.75); border: 1px solid #F1E3C4; border-radius: 16px; padding: 14px; }}
+.asc-features {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }}
+.asc-feature {{ flex: 1 1 0; min-width: 0; display: flex; gap: 12px; align-items: flex-start; background: rgba(255,255,255,.75); border: 1px solid #F1E3C4; border-radius: 16px; padding: 14px; }}
+.asc-feature .asc-icon {{ width: 36px; height: 36px; border-radius: 11px; }}
+.asc-feature .asc-icon img {{ width: 20px; height: 20px; }}
 .asc-feature b {{ display: block; color: {RED}; font-weight: 900; }}
 .asc-feature span {{ color: #4B5563; font-size: .88rem; }}
 
+/* Tablet: cartões da tela inicial um embaixo do outro, convidado centralizado */
+@media (max-width: 960px) {{
+  .st-key-home_cards [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+  .st-key-home_cards [data-testid="stColumn"] {{ flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }}
+  .st-key-guest_cols [data-testid="stColumn"]:not(:nth-child(2)) {{ display: none; }}
+  .st-key-guest_cols [data-testid="stColumn"]:nth-child(2) {{ flex: 1 1 100% !important; width: 100% !important; max-width: 560px; margin: 0 auto; }}
+  .asc-feature {{ flex: 0 1 calc(33.333% - 8px); }}
+}}
+
+/* Celular */
 @media (max-width: 640px) {{
+  .block-container {{ padding-top: 3rem; }}
   .asc-title {{ font-size: 2rem; }}
   .asc-pill {{ font-size: 1.3rem; }}
   .asc-logo {{ width: 64px; height: 64px; }}
+  [class*="st-key-card_"] {{ padding: 1.1rem 1rem 1rem; border-radius: 18px; }}
+  .asc-stats {{ grid-template-columns: repeat(3, 1fr); gap: 8px; }}
+  .asc-stat {{ padding: 10px 4px; border-radius: 12px; }}
+  .asc-stat img {{ width: 20px; height: 20px; }}
+  .asc-stat .v {{ font-size: 1rem; }}
+  .asc-stat .l {{ font-size: .75rem; }}
+  .asc-feature {{ flex: 0 1 calc(50% - 6px); }}
+  .asc-share a {{ flex: 1 1 calc(50% - 5px); justify-content: center; padding: 10px 8px; }}
+}}
+@media (max-width: 400px) {{
+  .asc-feature {{ flex: 1 1 100%; }}
 }}
 </style>
 """
@@ -222,7 +247,7 @@ def people_list(people):
     """people: lista de (nome, e-mail mascarado)."""
     rows = "".join(
         f'<div class="asc-person"><div class="asc-avatar">{html.escape(name[:1].upper())}</div>'
-        f'<b>{html.escape(name)}</b><span>{html.escape(email)}</span></div>'
+        f'<div><b>{html.escape(name)}</b><span>{html.escape(email)}</span></div></div>'
         for name, email in people
     )
     st.html(f'<div class="asc-people">{rows}</div>')

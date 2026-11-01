@@ -70,7 +70,7 @@ if not current_room:
     if not sender_email or not sender_pass:
         st.error("⚠️ E-mail de envio não configurado (EMAIL_REMETENTE / EMAIL_PASSWORD).")
 
-    col1, col2, col3 = st.columns(3, gap="medium")
+    col1, col2, col3 = st.container(key="home_cards").columns(3, gap="medium")
 
     with col1:
         with st.container(key="card_create"):
@@ -253,7 +253,7 @@ else:
                                 st.success(f"E-mail reenviado para {target}!")
 
     else:
-        _, center, _ = st.columns([1, 1.6, 1])
+        _, center, _ = st.container(key="guest_cols").columns([1, 1.6, 1])
         with center:
             with st.container(key="card_guest"):
                 ui.card_header("users", "green", "Participar da sala", subtitle)
