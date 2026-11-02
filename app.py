@@ -3,7 +3,8 @@ import time
 import re
 from datetime import date
 import ui
-from service.service import run_draw, clean_sent_folder, send_emails_backend, check_smtp_login, send_admin_key_email
+from service.service import (run_draw, clean_sent_folder, send_emails_backend, check_email_login, send_admin_key_email,
+                             gmail_api_configured)
 from service.database import (create_room, get_room, verify_admin, add_participant, add_participants,
                               get_participants, close_room, get_draw, get_secret, add_decline, get_declines,
                               remove_participant)
@@ -119,6 +120,8 @@ def invite_message(room_name, code, date_label, url, bold=False, with_url=True):
 
 sender_email = get_secret("EMAIL_REMETENTE")
 sender_pass = get_secret("EMAIL_PASSWORD")
+# Envio pronto: remetente + (API do Gmail autorizada ou senha de app para SMTP)
+email_ready = bool(sender_email and (gmail_api_configured() or sender_pass))
 app_url = (get_secret("APP_URL") or DEFAULT_APP_URL).rstrip("/")
 
 current_room = st.query_params.get("sala", None)
@@ -154,7 +157,14 @@ def admin_card(prefill_code=""):
 # Link do e-mail da chave: ?organizador=CÓDIGO abre direto o acesso ao painel
 admin_prefill = (st.query_params.get("organizador") or "").strip().upper()[:4]
 
-if not current_room and admin_prefill:
+if st.query_params.get("pagina") == "privacidade":
+    ui.hero(compact=True)
+    ui.privacy_policy(sender_email or "friendsecreto.online@gmail.com")
+    if st.button("Ir para o início", icon=":material/home:", type="tertiary"):
+        st.query_params.clear()
+        st.rerun()
+
+elif not current_room and admin_prefill:
     ui.hero(compact=True)
     _, center, _ = st.container(key="guest_cols").columns([1, 1.6, 1])
     with center:
@@ -165,8 +175,8 @@ if not current_room and admin_prefill:
 
 elif not current_room:
     ui.hero()
-    if not sender_email or not sender_pass:
-        st.error("⚠️ E-mail de envio não configurado (EMAIL_REMETENTE / EMAIL_PASSWORD).")
+    if not email_ready:
+        st.error("⚠️ E-mail de envio não configurado (EMAIL_REMETENTE e [gmail_api] ou EMAIL_PASSWORD).")
 
     col1, col2, col3 = st.container(key="home_cards").columns(3, gap="medium")
 
@@ -185,7 +195,7 @@ elif not current_room:
                                                "Aparece no convite, no painel e no e-mail do sorteio.")
                 if st.form_submit_button("Criar sala", type="primary", icon=":material/add:", width="stretch"):
                     owner_name, owner_email, owner_error = validate_participant(owner_name, owner_email, set(), set())
-                    if not sender_pass:
+                    if not email_ready:
                         st.error("Erro de configuração de e-mail.")
                     elif owner_error:
                         st.error(f"Organizador: {owner_error}")
@@ -226,6 +236,7 @@ elif not current_room:
         admin_card()
 
     ui.features()
+    ui.footer()
 
 else:
     if st.button("Voltar ao início", icon=":material/arrow_back:", type="tertiary"):
@@ -287,7 +298,7 @@ else:
                             remove_participant(current_room, owner_email)
                     st.rerun()
 
-            if not sender_email or not sender_pass:
+            if not email_ready:
                 st.error("⚠️ E-mail de envio não configurado. O sorteio só funciona no modo de teste.")
 
             if is_open:
@@ -300,7 +311,7 @@ else:
                         st.info("Modo de teste: nenhum e-mail foi enviado e a sala continua aberta.")
                     else:
                         with st.spinner("Conferindo o e-mail de envio..."):
-                            login_error = check_smtp_login(sender_email, sender_pass)
+                            login_error = check_email_login(sender_email, sender_pass)
                         if login_error:
                             st.error(f"Não foi possível entrar no e-mail de envio. Nada foi sorteado. ({login_error})")
                         else:
@@ -397,7 +408,7 @@ else:
                                 st.session_state["clear_add_list"] = not errors
                                 st.rerun()
 
-            elif sender_email and sender_pass:
+            elif email_ready:
                 with st.expander("Reenviar e-mail do sorteio", icon=":material/forward_to_inbox:"):
                     draw_result = get_draw(current_room)
                     if not draw_result:

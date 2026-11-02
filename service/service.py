@@ -1,3 +1,4 @@
+import base64
 import random
 import smtplib
 import ssl
@@ -16,8 +17,70 @@ IMAP_SERVER = "imap.gmail.com"
 _rng = random.SystemRandom()
 
 
+# API do Gmail via HTTPS: usada quando os secrets têm a seção [gmail_api]. Não depende de senha de app
+# nem das portas de SMTP/IMAP. A autorização é gerada uma vez com scripts/autorizar_gmail.py.
+GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
+
+
+def _gmail_api_config():
+    try:
+        config = st.secrets.get("gmail_api")
+    except Exception:
+        return None
+    if config and all(config.get(k) for k in ("client_id", "client_secret", "refresh_token")):
+        return dict(config)
+    return None
+
+
+def gmail_api_configured():
+    return _gmail_api_config() is not None
+
+
+def _api_call(session, method, path, **kwargs):
+    response = session.request(method, f"{GMAIL_API}{path}", timeout=30, **kwargs)
+    if response.status_code >= 400:
+        raise RuntimeError(f"API do Gmail respondeu {response.status_code}: {response.text[:300]}")
+    return response.json() if response.content else {}
+
+
+class _GmailApiMailer:
+    """Usado como o servidor SMTP: with ... as server: server.send_message(msg)."""
+
+    def __init__(self):
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import AuthorizedSession
+        config = _gmail_api_config()
+        credentials = Credentials(None, refresh_token=config["refresh_token"], client_id=config["client_id"],
+                                  client_secret=config["client_secret"], token_uri="https://oauth2.googleapis.com/token")
+        self.session = AuthorizedSession(credentials)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.session.close()
+        return False
+
+    def send_message(self, msg):
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        _api_call(self.session, "POST", "/messages/send", json={"raw": raw})
+
+
+def _open_mailer(sender, password):
+    """API do Gmail se estiver configurada; senão SMTP com a senha de app."""
+    if gmail_api_configured():
+        mailer = _GmailApiMailer()
+        try:
+            _api_call(mailer.session, "GET", "/profile")  # confere se a autorização ainda vale
+        except Exception:
+            mailer.session.close()
+            raise
+        return mailer
+    return _smtp_login(sender, password)
+
+
 def email_subject(room_code):
-    # O trecho "Sala XXXX" é ASCII para permitir a busca via IMAP na limpeza dos enviados
+    # O trecho "Sala XXXX" é ASCII para permitir a busca (IMAP ou API) na limpeza dos enviados
     return f"🎁 Seu Amigo Secreto - Sala {room_code}"
 
 
@@ -71,12 +134,12 @@ def _smtp_error_message(e):
     return str(e)
 
 
-def check_smtp_login(sender, password):
+def check_email_login(sender, password):
     """
     Testa as credenciais antes do sorteio, para não fechar a sala se o envio for falhar.
     """
     try:
-        with _smtp_login(sender, password):
+        with _open_mailer(sender, password):
             pass
         return None
     except Exception as e:
@@ -186,7 +249,7 @@ def send_admin_key_email(sender, password, owner_name, owner_email, room, admin_
     """, subtype='html')
 
     try:
-        with _smtp_login(sender, password) as server:
+        with _open_mailer(sender, password) as server:
             server.send_message(msg)
         return None
     except Exception as e:
@@ -212,7 +275,7 @@ def send_emails_backend(draw_dict, email_map, sender, password, room, test_mode,
         return sent_list, failed
 
     try:
-        with _smtp_login(sender, password) as server:
+        with _open_mailer(sender, password) as server:
             for i, giver in enumerate(givers):
                 status.text(f"Enviando para {giver}...")
                 progress.progress((i + 1) / len(givers))
@@ -253,6 +316,45 @@ def _find_special_folder(mail, flag, fallbacks):
     return None
 
 
+def _trash_sent_imap(username, password, recipient_list, room_code):
+    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+    mail.login(username, password)
+
+    sent_folder = _find_special_folder(mail, "\\Sent",['"[Gmail]/Sent Mail"', '"[Gmail]/Enviados"', '"[Gmail]/E-mails enviados"'])
+    trash_folder = _find_special_folder(mail, "\\Trash",['"[Gmail]/Trash"', '"[Gmail]/Lixeira"'])
+    if not sent_folder or mail.select(sent_folder)[0] != "OK":
+        raise RuntimeError("pasta de enviados não encontrada")
+
+    ids = []
+    for recipient in set(recipient_list):
+        status, data = mail.search(None, f'(TO "{recipient}" SUBJECT "Sala {room_code}")')
+        if status == "OK":
+            ids += data[0].split()
+
+    if ids:
+        id_set = b",".join(ids).decode()
+        if trash_folder:
+            mail.copy(id_set, trash_folder)
+        mail.store(id_set, '+FLAGS', '\\Deleted')
+        mail.expunge()
+
+    mail.close()
+    mail.logout()
+    return len(ids)
+
+
+def _trash_sent_api(recipient_list, room_code):
+    count = 0
+    with _GmailApiMailer() as mailer:
+        for recipient in set(recipient_list):
+            query = f'in:sent to:{recipient} subject:"Sala {room_code}"'
+            found = _api_call(mailer.session, "GET", "/messages", params={"q": query})
+            for message in found.get("messages", []):
+                _api_call(mailer.session, "POST", f"/messages/{message['id']}/trash")
+                count += 1
+    return count
+
+
 def clean_sent_folder(username, password, recipient_list, room_code, quiet=False):
     """
     Move para a lixeira os e-mails do sorteio que ficaram na caixa de enviados, para manter o segredo.
@@ -265,32 +367,13 @@ def clean_sent_folder(username, password, recipient_list, room_code, quiet=False
         status_text.info("🧹 Limpando rastros da caixa de saída...")
 
     try:
-        mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-        mail.login(username, password)
-
-        sent_folder = _find_special_folder(mail, "\\Sent", ['"[Gmail]/Sent Mail"', '"[Gmail]/Enviados"', '"[Gmail]/E-mails enviados"'])
-        trash_folder = _find_special_folder(mail, "\\Trash", ['"[Gmail]/Trash"', '"[Gmail]/Lixeira"'])
-        if not sent_folder or mail.select(sent_folder)[0] != "OK":
-            raise RuntimeError("pasta de enviados não encontrada")
-
-        ids = []
-        for recipient in set(recipient_list):
-            status, data = mail.search(None, f'(TO "{recipient}" SUBJECT "Sala {room_code}")')
-            if status == "OK":
-                ids += data[0].split()
-
-        if ids:
-            id_set = b",".join(ids).decode()
-            if trash_folder:
-                mail.copy(id_set, trash_folder)
-            mail.store(id_set, '+FLAGS', '\\Deleted')
-            mail.expunge()
-
-        mail.close()
-        mail.logout()
+        if gmail_api_configured():
+            count = _trash_sent_api(recipient_list, room_code)
+        else:
+            count = _trash_sent_imap(username, password, recipient_list, room_code)
 
         if not quiet:
-            status_text.success(f"✨ Pronto! {len(ids)} e-mails removidos dos enviados.")
+            status_text.success(f"✨ Pronto! {count} e-mails removidos dos enviados.")
             time.sleep(2)
         status_text.empty()
 

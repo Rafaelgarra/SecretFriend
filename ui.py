@@ -168,6 +168,10 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 .asc-key h4 {{ margin: 0; padding: 0; color: #8A6608; font-weight: 900; }}
 .asc-key p {{ margin: 4px 0 0; color: #4B5563; font-size: .92rem; }}
 
+.asc-footer {{ text-align: center; color: #6B7280; font-size: .85rem; margin-top: 28px; }}
+.asc-footer a {{ color: {RED}; font-weight: 700; }}
+.st-key-card_privacy h4 {{ font-size: 1.05rem; font-weight: 800; color: {NAVY}; margin-top: 1rem; }}
+
 /* Recursos */
 .asc-features-title {{ font-size: 1.5rem; font-weight: 900; color: {NAVY}; margin: 28px 0 12px; }}
 .asc-features {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }}
@@ -361,6 +365,47 @@ def admin_key_notice(code, emailed_to=""):
       <h4>🔑 Sua chave do organizador</h4>
       <p>Para voltar a este painel você vai precisar do código <b>{html.escape(code)}</b> e da chave abaixo. {where}</p>
     </div>""")
+
+
+def footer():
+    st.html('<div class="asc-footer">🎁 Amigo Secreto Conectado · '
+            '<a href="?pagina=privacidade" target="_self">Política de Privacidade</a></div>')
+
+
+def privacy_policy(contact_email):
+    with st.container(key="card_privacy"):
+        card_header("lock", "green", "Política de Privacidade", "Última atualização: novembro de 2026")
+        st.markdown(f"""
+O **Amigo Secreto Conectado** organiza sorteios de amigo secreto. Esta página explica quais dados usamos e por quê.
+
+#### Dados que coletamos
+- **Organizador:** nome e e-mail informados ao criar a sala.
+- **Participantes:** nome e e-mail informados ao confirmar presença, ou cadastrados pelo organizador.
+- **Quem recusa o convite:** nome e, se a pessoa quiser, um recado para o organizador.
+- **Sala:** nome, data da troca de presentes e o resultado do sorteio.
+
+#### Como usamos
+Só para fazer o amigo secreto funcionar: mostrar os participantes ao organizador, realizar o sorteio e
+enviar por e-mail a cada participante quem ele tirou, além de enviar ao organizador o código e a chave da sala.
+Não usamos os dados para publicidade e **não vendemos nem compartilhamos** com terceiros.
+
+#### Onde ficam guardados
+Em uma planilha privada do Google. Nomes, e-mails, recados e o resultado do sorteio são guardados
+**criptografados**. A chave do organizador é guardada apenas de forma irreversível (hash).
+
+#### Acesso à conta de e-mail do app
+Os e-mails são enviados pela conta do próprio app ({contact_email}), usando a API do Gmail.
+O app só **envia** os e-mails do sorteio, do convite e da chave e depois **move para a lixeira** essas mesmas
+mensagens da pasta Enviados dessa conta, para que o resultado continue secreto.
+Ele não lê, não guarda e não acessa nenhum outro e-mail, e não acessa o e-mail de participantes.
+O uso das informações recebidas das APIs do Google segue a
+[Política de Dados do Usuário dos Serviços de API do Google](https://developers.google.com/terms/api-services-user-data-policy),
+incluindo os requisitos de Uso Limitado.
+
+#### Por quanto tempo e como excluir
+Os dados ficam guardados enquanto a sala existir. Para pedir a exclusão dos seus dados ou tirar dúvidas,
+escreva para **{contact_email}**.
+""")
 
 
 def features():
