@@ -1,7 +1,10 @@
 """Identidade visual: estilos, ícones e blocos de HTML do Amigo Secreto Conectado."""
 import base64
 import html
+import json
+import urllib.parse
 import streamlit as st
+import streamlit.components.v1 as components
 
 RED = "#C62828"
 GREEN = "#0E7C59"
@@ -233,14 +236,55 @@ def stats(items):
     st.html(f'<div class="asc-stats">{tiles}</div>')
 
 
-def share_buttons(msg_encoded, url_encoded):
+def share_buttons(whatsapp, twitter, telegram, url):
+    """Cada rede recebe o texto no formato que entende. O Facebook só aceita o link."""
+    q = urllib.parse.quote
     st.html(f"""
     <div class="asc-share">
-      <a class="wa" href="https://wa.me/?text={msg_encoded}" target="_blank">📱 WhatsApp</a>
-      <a class="fb" href="https://www.facebook.com/sharer/sharer.php?u={url_encoded}" target="_blank">📘 Facebook</a>
-      <a class="tw" href="https://twitter.com/intent/tweet?text={msg_encoded}" target="_blank">✖️ X / Twitter</a>
-      <a class="tg" href="https://t.me/share/url?url={url_encoded}&text={msg_encoded}" target="_blank">✈️ Telegram</a>
+      <a class="wa" href="https://wa.me/?text={q(whatsapp)}" target="_blank">📱 WhatsApp</a>
+      <a class="fb" href="https://www.facebook.com/sharer/sharer.php?u={q(url)}" target="_blank">📘 Facebook</a>
+      <a class="tw" href="https://twitter.com/intent/tweet?text={q(twitter)}" target="_blank">✖️ X / Twitter</a>
+      <a class="tg" href="https://t.me/share/url?url={q(url)}&text={q(telegram)}" target="_blank">✈️ Telegram</a>
     </div>""")
+
+
+def native_share_button(title, text, url):
+    """Abre a folha de compartilhar do celular (contatos recentes e todos os apps).
+    Onde o navegador não oferece isso, o botão vira "Copiar convite"."""
+    payload = json.dumps({"title": title, "text": text, "url": url}).replace("</", "<\\/")
+    components.html(f"""
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800&display=swap" rel="stylesheet">
+    <style>
+      body {{ margin: 0; font-family: Nunito, sans-serif; }}
+      button {{ width: 100%; height: 48px; border: 0; border-radius: 999px; cursor: pointer; font: 800 16px Nunito, sans-serif;
+        color: #fff; background: {RED}; box-shadow: 0 6px 14px rgba(198,40,40,.25); }}
+      button:active {{ transform: scale(.98); }}
+      small {{ display: block; text-align: center; color: #6B7280; font-size: 13px; margin-top: 4px; min-height: 16px; }}
+    </style>
+    <button id="b">📤 Compartilhar convite</button><small id="m"></small>
+    <script>
+      const data = {payload};
+      const b = document.getElementById("b"), m = document.getElementById("m");
+      // O componente roda num iframe sem permissão de compartilhar; a página do app (mesma origem) tem.
+      const nav = (() => {{ try {{ return window.top.navigator.share ? window.top.navigator : navigator; }} catch (e) {{ return navigator; }} }})();
+      const canShare = !!nav.share;
+      if (!canShare) b.textContent = "📋 Copiar convite";
+      const copy = async () => {{
+        const full = data.text + "\\n" + data.url;
+        let ok = false;
+        try {{ await navigator.clipboard.writeText(full); ok = true; }} catch (e) {{
+          const t = document.createElement("textarea");
+          t.value = full; document.body.appendChild(t); t.select();
+          try {{ ok = document.execCommand("copy"); }} catch (e2) {{}}
+          t.remove();
+        }}
+        m.textContent = ok ? "Convite copiado! É só colar onde quiser." : "Copie o texto do convite mais abaixo.";
+      }};
+      b.onclick = async () => {{
+        if (!canShare) return copy();
+        try {{ await nav.share(data); }} catch (e) {{ if (e.name !== "AbortError") await copy(); }}
+      }};
+    </script>""", height=74)
 
 
 def people_list(people):

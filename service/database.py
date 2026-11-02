@@ -159,6 +159,12 @@ def add_participant(room_code, name, email):
     _participants_sheet().append_row([room_code, encrypt_data(name), encrypt_data(email)])
 
 
+def add_participants(room_code, people):
+    """Cadastra vários (nome, e-mail) de uma vez, numa única escrita na planilha."""
+    if people:
+        _participants_sheet().append_rows([[room_code, encrypt_data(n), encrypt_data(e)] for n, e in people])
+
+
 def get_participants(room_code):
     all_rows = _participants_sheet().get_all_values()
 

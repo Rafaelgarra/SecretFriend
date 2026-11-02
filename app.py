@@ -1,12 +1,11 @@
 import streamlit as st
 import time
-import urllib.parse
 import re
 from datetime import date
 import ui
 from service.service import run_draw, clean_sent_folder, send_emails_backend, check_smtp_login
-from service.database import (create_room, get_room, verify_admin, add_participant, get_participants,
-                              close_room, get_draw, get_secret)
+from service.database import (create_room, get_room, verify_admin, add_participant, add_participants,
+                              get_participants, close_room, get_draw, get_secret)
 
 DEFAULT_APP_URL = "https://appfriend-dyhgtzh8udytssfjcul2rh.streamlit.app/"
 
@@ -14,9 +13,11 @@ st.set_page_config(page_title="Amigo Secreto Conectado", page_icon="🎁", layou
 ui.inject_styles()
 
 
+EMAIL_PATTERN = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
+
+
 def is_valid_email(email):
-    pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
-    return re.match(pattern, email) is not None
+    return re.fullmatch(EMAIL_PATTERN, email) is not None
 
 
 def mask_email(email):
@@ -35,26 +36,84 @@ def master_rooms():
     return st.session_state.setdefault("master_rooms", set())
 
 
-def register_participant(room_code, name, email):
-    """Valida e cadastra. Retorna a mensagem de erro, ou None se deu certo."""
+def validate_participant(name, email, taken_names, taken_emails):
+    """Retorna (nome, e-mail, erro) já normalizados; erro é None se estiver tudo certo."""
     clean_name = " ".join(name.split())
     clean_email = email.strip().lower()
 
     if not clean_name or not clean_email:
-        return "Preencha todos os campos."
+        return clean_name, clean_email, "Preencha nome e e-mail."
     if len(clean_name) > 60:
-        return "Nome muito longo (máximo 60 caracteres)."
+        return clean_name, clean_email, "Nome muito longo (máximo 60 caracteres)."
     if not is_valid_email(clean_email):
-        return "E-mail inválido. Verifique se digitou corretamente."
+        return clean_name, clean_email, "E-mail inválido. Verifique se digitou corretamente."
+    if clean_email in taken_emails:
+        return clean_name, clean_email, "Este e-mail já está cadastrado nesta sala!"
+    if clean_name.lower() in taken_names:
+        return clean_name, clean_email, "Este nome já existe! Adicione um sobrenome."
+    return clean_name, clean_email, None
 
-    existing = get_participants(room_code)
-    if clean_email in [e.strip().lower() for e in existing.values()]:
-        return "Este e-mail já está cadastrado nesta sala!"
-    if clean_name.lower() in [n.strip().lower() for n in existing.keys()]:
-        return "Este nome já existe! Adicione um sobrenome."
 
+def taken_sets(participants):
+    return ({n.strip().lower() for n in participants}, {e.strip().lower() for e in participants.values()})
+
+
+def register_participant(room_code, name, email):
+    """Valida e cadastra. Retorna a mensagem de erro, ou None se deu certo."""
+    clean_name, clean_email, error = validate_participant(name, email, *taken_sets(get_participants(room_code)))
+    if error:
+        return error
     add_participant(room_code, clean_name, clean_email)
     return None
+
+
+def parse_people_list(text):
+    """Lê uma lista colada, um participante por linha ("Nome, e-mail", "Nome - e-mail", "Nome <e-mail>"...)."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = re.search(EMAIL_PATTERN, line)
+        if not match:
+            yield line, ""
+            continue
+        name = (line[:match.start()] + " " + line[match.end():]).strip(" \t,;:|<>()-")
+        yield name, match.group()
+
+
+def register_many(room_code, text):
+    """Cadastra uma lista colada. Retorna (quantos entraram, lista de erros por linha)."""
+    taken_names, taken_emails = taken_sets(get_participants(room_code))
+    to_add, errors = [], []
+    for name, email in parse_people_list(text):
+        if not email:
+            errors.append(f"{name}: não encontrei um e-mail válido nesta linha.")
+            continue
+        clean_name, clean_email, error = validate_participant(name, email, taken_names, taken_emails)
+        if error:
+            errors.append(f"{name or email}: {error}")
+            continue
+        to_add.append((clean_name, clean_email))
+        taken_names.add(clean_name.lower())
+        taken_emails.add(clean_email)
+    add_participants(room_code, to_add)
+    return len(to_add), errors
+
+
+def invite_message(room_name, code, date_label, url, bold=False, with_url=True):
+    """Texto do convite. bold=True usa o *negrito* do WhatsApp; as outras redes mostrariam os asteriscos."""
+    b = (lambda t: f"*{t}*") if bold else (lambda t: t)
+    lines = [f"🎁 {b('Você foi convidado(a) para o Amigo Secreto!')}"]
+    if room_name and room_name != "Amigo Secreto":
+        lines.append(f"🎄 {room_name}")
+    if date_label:
+        lines.append(f"📅 Troca de presentes: {date_label}")
+    lines.append(f"🔑 Código da sala: {b(code)}")
+    if with_url:
+        lines += ["", "👉 Entre e confirme sua participação:", url]
+    else:
+        lines += ["", "👉 Entre pelo link e confirme sua participação."]
+    return "\n".join(lines)
 
 
 sender_email = get_secret("EMAIL_REMETENTE")
@@ -204,10 +263,18 @@ else:
             with st.container(key="card_invite"):
                 ui.card_header("link", "green", "Enviar convite", "Compartilhe o link para as pessoas entrarem na sala.")
                 invite_url = f"{app_url}/?sala={current_room}"
-                msg_texto = f"Participe do meu Amigo Secreto! Código da Sala: {current_room}. Entre aqui: {invite_url}"
-                ui.share_buttons(urllib.parse.quote(msg_texto), urllib.parse.quote(invite_url))
+                plain_text = invite_message(room_name, current_room, date_label, invite_url)
+                ui.native_share_button(f"Amigo Secreto · Sala {current_room}",
+                                       invite_message(room_name, current_room, date_label, invite_url, with_url=False),
+                                       invite_url)
+                ui.share_buttons(
+                    whatsapp=invite_message(room_name, current_room, date_label, invite_url, bold=True),
+                    twitter=plain_text,
+                    telegram=invite_message(room_name, current_room, date_label, invite_url, with_url=False),
+                    url=invite_url,
+                )
                 st.caption("Para Instagram ou outras redes, copie o texto abaixo:")
-                st.code(msg_texto, language="text", wrap_lines=True)
+                st.code(plain_text, language="text", wrap_lines=True)
 
         with st.container(key="card_people"):
             ui.card_header("users", "red", "Participantes confirmados", f"Total: {len(participants)}")
@@ -217,19 +284,48 @@ else:
                 st.caption("Aguardando participantes entrarem pelo link...")
 
             if is_open:
-                with st.expander("Quero participar do sorteio também", icon=":material/person_add:"):
-                    with st.form("master_join", border=False):
-                        c1, c2 = st.columns(2)
-                        m_name = c1.text_input("Seu nome", max_chars=60)
-                        m_email = c2.text_input("Seu e-mail")
-                        if st.form_submit_button("Me cadastrar"):
-                            with st.spinner("Validando e salvando..."):
-                                error = register_participant(current_room, m_name, m_email)
-                            if error:
-                                st.error(error)
-                            else:
-                                st.success("Você entrou na lista!")
-                                time.sleep(1)
+                flash = st.session_state.pop(f"flash_{current_room}", None)
+                if flash:
+                    added, errors = flash
+                    if added:
+                        st.success(f"✅ {added} participante(s) adicionado(s).")
+                    for error in errors:
+                        st.error(error)
+
+                with st.expander("Adicionar participantes manualmente", icon=":material/person_add:", expanded=not participants):
+                    st.caption("Para quem não vai entrar pelo link. Se você também vai participar, adicione-se aqui.")
+                    one_tab, list_tab = st.tabs(["Um por vez", "Colar uma lista"])
+
+                    with one_tab:
+                        if st.session_state.pop("clear_add_one", False):
+                            st.session_state["add_name"] = st.session_state["add_email"] = ""
+                        with st.form("master_add", border=False):
+                            c1, c2 = st.columns(2)
+                            m_name = c1.text_input("Nome", max_chars=60, key="add_name")
+                            m_email = c2.text_input("E-mail", key="add_email")
+                            if st.form_submit_button("Adicionar", icon=":material/person_add:"):
+                                with st.spinner("Validando e salvando..."):
+                                    error = register_participant(current_room, m_name, m_email)
+                                if error:
+                                    st.error(error)
+                                else:
+                                    st.session_state[f"flash_{current_room}"] = (1, [])
+                                    st.session_state["clear_add_one"] = True
+                                    st.rerun()
+
+                    with list_tab:
+                        if st.session_state.pop("clear_add_list", False):
+                            st.session_state["add_list"] = ""
+                        with st.form("master_bulk", border=False):
+                            people_text = st.text_area(
+                                "Um participante por linha: nome e e-mail",
+                                placeholder="Ana Souza, ana@exemplo.com\nBruno Lima, bruno@exemplo.com",
+                                height=150, key="add_list")
+                            if st.form_submit_button("Adicionar todos", icon=":material/group_add:"):
+                                with st.spinner("Validando e salvando..."):
+                                    added, errors = register_many(current_room, people_text)
+                                st.session_state[f"flash_{current_room}"] = (added, errors)
+                                st.session_state["clear_add_list"] = not errors
                                 st.rerun()
 
             elif sender_email and sender_pass:
