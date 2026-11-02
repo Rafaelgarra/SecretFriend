@@ -441,7 +441,7 @@ else:
         with center:
             with st.container(key="card_guest"):
                 if room["status"] == "CLOSED":
-                    ui.invite_intro(room_name, date_label, room["owner_name"])
+                    ui.invite_intro(room_name, date_label, room["owner_name"], ask=False)
                     ui.note("closed", "Inscrições encerradas 🚫",
                             "O sorteio já foi realizado. Se você confirmou presença, confira seu e-mail (e a caixa de spam).")
 

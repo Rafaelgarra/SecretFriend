@@ -328,7 +328,8 @@ def note(kind, title, text):
     st.html(f'<div class="asc-note {kind}"><h3>{html.escape(title)}</h3><p>{html.escape(text)}</p></div>')
 
 
-def invite_intro(room_name, date_label, owner_name=""):
+def invite_intro(room_name, date_label, owner_name="", ask=True):
+    """ask=False tira a pergunta "Vai participar?" (sala já sorteada)."""
     date_html = f'<span class="asc-invite-date">📅 Troca de presentes: {html.escape(date_label)}</span>' if date_label else ""
     if owner_name:
         date_html += f'<p class="asc-invite-owner">Organizado por <b>{html.escape(owner_name)}</b></p>'
@@ -338,7 +339,7 @@ def invite_intro(room_name, date_label, owner_name=""):
       <p class="asc-invite-kicker">Você foi convidado(a) para o</p>
       <h2>{html.escape(room_name)}</h2>
       {date_html}
-      <p class="asc-invite-ask">Vai participar do sorteio?</p>
+      {'<p class="asc-invite-ask">Vai participar do sorteio?</p>' if ask else ''}
     </div>""")
 
 
