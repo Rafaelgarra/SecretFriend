@@ -151,6 +151,11 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 .asc-invite h2 {{ margin: 2px 0 8px; padding: 0; font-size: 1.8rem; font-weight: 900; color: {RED}; line-height: 1.15; }}
 .asc-invite-date {{ display: inline-block; background: #EEF8F2; color: {GREEN}; font-weight: 800; border-radius: 999px; padding: 4px 14px; font-size: .92rem; }}
 .asc-invite-ask {{ margin: 18px 0 4px; font-weight: 800; color: {NAVY}; font-size: 1.1rem; }}
+.asc-invite-owner {{ margin: 8px 0 0; color: #6B7280; font-size: .92rem; }}
+.asc-invite-owner b {{ color: {NAVY}; }}
+.st-key-selfjoin {{ background: #EEF8F2; border: 2px solid {GREEN}; border-radius: 16px; padding: 14px 16px 10px; margin: 6px 0 4px; }}
+.st-key-selfjoin label p {{ font-size: 1.15rem !important; font-weight: 900; color: {GREEN}; }}
+.st-key-selfjoin [data-testid="stCaptionContainer"] {{ margin-top: -4px; }}
 .st-key-decline_btn button {{ border-color: #F5C6C0; color: {RED}; background: #fff; }}
 .st-key-decline_btn button:hover {{ border-color: {RED}; color: {RED}; background: #FDEFEC; }}
 .asc-declined {{ margin-top: 14px; padding-top: 12px; border-top: 1px dashed #EADBB8; }}
@@ -319,8 +324,10 @@ def note(kind, title, text):
     st.html(f'<div class="asc-note {kind}"><h3>{html.escape(title)}</h3><p>{html.escape(text)}</p></div>')
 
 
-def invite_intro(room_name, date_label):
+def invite_intro(room_name, date_label, owner_name=""):
     date_html = f'<span class="asc-invite-date">📅 Troca de presentes: {html.escape(date_label)}</span>' if date_label else ""
+    if owner_name:
+        date_html += f'<p class="asc-invite-owner">Organizado por <b>{html.escape(owner_name)}</b></p>'
     st.html(f"""
     <div class="asc-invite">
       {_svg_img(LOGO_SVG, "asc-invite-logo")}
@@ -342,12 +349,17 @@ def declined_list(declines):
     st.html(f'<div class="asc-declined"><p>Não vão participar</p>{rows}</div>')
 
 
-def admin_key_notice(code):
+def admin_key_notice(code, emailed_to=""):
+    """emailed_to: e-mail (mascarado) que recebeu a chave, ou vazio se o envio falhou."""
+    if emailed_to:
+        where = (f"Também enviamos o código e a chave para <b>{html.escape(emailed_to)}</b> "
+                 "(se não achar, olhe o spam).")
+    else:
+        where = "<b>Não conseguimos enviar a chave para o seu e-mail</b>, então anote-a agora: ela não será mostrada de novo."
     st.html(f"""
     <div class="asc-key">
-      <h4>🔑 Guarde sua chave do organizador</h4>
-      <p>Para voltar a este painel você vai precisar do código <b>{html.escape(code)}</b> e da chave abaixo.
-      Ela não será mostrada de novo.</p>
+      <h4>🔑 Sua chave do organizador</h4>
+      <p>Para voltar a este painel você vai precisar do código <b>{html.escape(code)}</b> e da chave abaixo. {where}</p>
     </div>""")
 
 

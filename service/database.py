@@ -9,12 +9,15 @@ import os
 from datetime import datetime
 from cryptography.fernet import Fernet, InvalidToken
 
-# Colunas da aba "Salas": Código | Status | Hash da chave | Nome | Data | Sorteio (criptografado)
+# Colunas da aba "Salas": Código | Status | Hash da chave | Nome | Data | Sorteio |
+# Nome do organizador | E-mail do organizador (os três últimos criptografados)
 COL_STATUS = 2
 COL_ADMIN_HASH = 3
 COL_NAME = 4
 COL_DATE = 5
 COL_DRAW = 6
+COL_OWNER_NAME = 7
+COL_OWNER_EMAIL = 8
 
 CODE_CHARS = string.ascii_uppercase + string.digits
 KEY_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sem 0/O e 1/I para evitar confusão
@@ -85,7 +88,7 @@ def _hash_admin_key(code, key):
     return hashlib.sha256(f"{code}:{key.strip().upper()}".encode()).hexdigest()
 
 
-def create_room(name="", draw_date=""):
+def create_room(name="", draw_date="", owner_name="", owner_email=""):
     """Cria a sala e devolve (código, chave do organizador)."""
     rooms_sheet = _rooms_sheet()
     existing = set(rooms_sheet.col_values(1))
@@ -97,7 +100,8 @@ def create_room(name="", draw_date=""):
     admin_key = ''.join(secrets.choice(KEY_CHARS) for _ in range(8))
     admin_key = f"{admin_key[:4]}-{admin_key[4:]}"
 
-    rooms_sheet.append_row([code, "OPEN", _hash_admin_key(code, admin_key), name, draw_date, ""])
+    rooms_sheet.append_row([code, "OPEN", _hash_admin_key(code, admin_key), name, draw_date, "",
+                            encrypt_data(owner_name), encrypt_data(owner_email)])
     return code, admin_key
 
 
@@ -111,7 +115,7 @@ def get_room(code):
         return None
 
     values = rooms_sheet.row_values(row)
-    values += [""] * (COL_DRAW - len(values))
+    values += [""] * (COL_OWNER_EMAIL - len(values))
     return {
         "code": code,
         "status": values[COL_STATUS - 1] or "OPEN",
@@ -119,6 +123,8 @@ def get_room(code):
         "name": values[COL_NAME - 1],
         "date": values[COL_DATE - 1],
         "has_draw": bool(values[COL_DRAW - 1]),
+        "owner_name": decrypt_data(values[COL_OWNER_NAME - 1]),
+        "owner_email": decrypt_data(values[COL_OWNER_EMAIL - 1]),
     }
 
 
@@ -164,6 +170,17 @@ def add_participants(room_code, people):
     """Cadastra vários (nome, e-mail) de uma vez, numa única escrita na planilha."""
     if people:
         _participants_sheet().append_rows([[room_code, encrypt_data(n), encrypt_data(e)] for n, e in people])
+
+
+def remove_participant(room_code, email):
+    """Tira da sala o participante com este e-mail."""
+    participants_sheet = _participants_sheet()
+    rows = participants_sheet.get_all_values()
+    target = email.strip().lower()
+    matches = [i + 1 for i, r in enumerate(rows) if i > 0 and len(r) >= 3 and r[0] == room_code
+               and decrypt_data(r[2]).strip().lower() == target]
+    for row_number in reversed(matches):
+        participants_sheet.delete_rows(row_number)
 
 
 def _responses_sheet():

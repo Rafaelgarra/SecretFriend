@@ -3,9 +3,10 @@ import time
 import re
 from datetime import date
 import ui
-from service.service import run_draw, clean_sent_folder, send_emails_backend, check_smtp_login
+from service.service import run_draw, clean_sent_folder, send_emails_backend, check_smtp_login, send_admin_key_email
 from service.database import (create_room, get_room, verify_admin, add_participant, add_participants,
-                              get_participants, close_room, get_draw, get_secret, add_decline, get_declines)
+                              get_participants, close_room, get_draw, get_secret, add_decline, get_declines,
+                              remove_participant)
 
 DEFAULT_APP_URL = "https://appfriend-dyhgtzh8udytssfjcul2rh.streamlit.app/"
 
@@ -124,7 +125,45 @@ current_room = st.query_params.get("sala", None)
 if current_room:
     current_room = current_room.strip().upper()
 
-if not current_room:
+def admin_card(prefill_code=""):
+    with st.container(key="card_admin"):
+        subtitle = ("Digite a chave que enviamos para o seu e-mail." if prefill_code
+                    else "Acesse o painel com o código e a chave da sala.")
+        ui.card_header("crown", "gold", "Sou o organizador", subtitle)
+        with st.form("admin_login", border=False):
+            code_input = st.text_input("Código da sala", value=prefill_code, placeholder="Ex.: K7Q2", max_chars=4,
+                                       key="admin_code").strip().upper()
+            key_input = st.text_input("Chave do organizador", placeholder="XXXX-XXXX", type="password")
+            if st.form_submit_button("Acessar painel", icon=":material/admin_panel_settings:", width="stretch"):
+                if not code_input:
+                    st.warning("Digite o código.")
+                else:
+                    with st.spinner("Buscando sala..."):
+                        room = get_room(code_input)
+                    if not room:
+                        st.error("Sala não encontrada.")
+                    elif not verify_admin(room, key_input):
+                        st.error("Chave do organizador incorreta.")
+                    else:
+                        master_rooms().add(code_input)
+                        st.query_params.clear()
+                        st.query_params["sala"] = code_input
+                        st.rerun()
+
+
+# Link do e-mail da chave: ?organizador=CÓDIGO abre direto o acesso ao painel
+admin_prefill = (st.query_params.get("organizador") or "").strip().upper()[:4]
+
+if not current_room and admin_prefill:
+    ui.hero(compact=True)
+    _, center, _ = st.container(key="guest_cols").columns([1, 1.6, 1])
+    with center:
+        admin_card(admin_prefill)
+        if st.button("Ir para o início", icon=":material/home:", type="tertiary"):
+            st.query_params.clear()
+            st.rerun()
+
+elif not current_room:
     ui.hero()
     if not sender_email or not sender_pass:
         st.error("⚠️ E-mail de envio não configurado (EMAIL_REMETENTE / EMAIL_PASSWORD).")
@@ -136,18 +175,35 @@ if not current_room:
             ui.card_header("gift", "red", "Criar sala", "Organize um Amigo Secreto em minutos.")
             with st.form("create_room", border=False):
                 room_name = st.text_input("Nome da sala", placeholder="Ex.: Amigo Secreto da Equipe", max_chars=60)
+                o1, o2 = st.columns(2)
+                owner_name = o1.text_input("Seu nome", placeholder="Ex.: Rafael", max_chars=60)
+                owner_email = o2.text_input("Seu e-mail", placeholder="voce@exemplo.com",
+                                            help="Usado para você participar do sorteio e receber quem tirou.")
                 draw_date = st.date_input("Dia da troca de presentes (opcional)", value=None, min_value=date.today(),
                                           format="DD/MM/YYYY",
                                           help="Quando vocês vão se encontrar para trocar os presentes. "
                                                "Aparece no convite, no painel e no e-mail do sorteio.")
                 if st.form_submit_button("Criar sala", type="primary", icon=":material/add:", width="stretch"):
+                    owner_name, owner_email, owner_error = validate_participant(owner_name, owner_email, set(), set())
                     if not sender_pass:
                         st.error("Erro de configuração de e-mail.")
+                    elif owner_error:
+                        st.error(f"Organizador: {owner_error}")
                     else:
-                        with st.spinner("Criando sala..."):
-                            new_code, admin_key = create_room(room_name.strip(), draw_date.isoformat() if draw_date else "")
+                        with st.spinner("Criando sala e enviando a chave para o seu e-mail..."):
+                            new_code, admin_key = create_room(room_name.strip(), draw_date.isoformat() if draw_date else "",
+                                                              owner_name, owner_email)
+                            # Por padrão o organizador já entra no sorteio; ele pode desligar no painel
+                            add_participant(new_code, owner_name, owner_email)
+                            key_error = send_admin_key_email(sender_email, sender_pass, owner_name, owner_email,
+                                                             {"code": new_code, "name": room_name.strip()}, admin_key,
+                                                             f"{app_url}/?organizador={new_code}")
+                            if not key_error:
+                                # A chave não deve ficar nos enviados da conta do app
+                                clean_sent_folder(sender_email, sender_pass, [owner_email], new_code, quiet=True)
                         master_rooms().add(new_code)
                         st.session_state.setdefault("new_admin_keys", {})[new_code] = admin_key
+                        st.session_state.setdefault("key_emails", {})[new_code] = (owner_email, key_error)
                         st.query_params["sala"] = new_code
                         st.rerun()
 
@@ -167,25 +223,7 @@ if not current_room:
                         st.rerun()
 
     with col3:
-        with st.container(key="card_admin"):
-            ui.card_header("crown", "gold", "Sou o organizador", "Acesse o painel com o código e a chave da sala.")
-            with st.form("admin_login", border=False):
-                code_input = st.text_input("Código da sala", placeholder="Ex.: K7Q2", max_chars=4, key="admin_code").strip().upper()
-                key_input = st.text_input("Chave do organizador", placeholder="XXXX-XXXX", type="password")
-                if st.form_submit_button("Acessar painel", icon=":material/admin_panel_settings:", width="stretch"):
-                    if not code_input:
-                        st.warning("Digite o código.")
-                    else:
-                        with st.spinner("Buscando sala..."):
-                            room = get_room(code_input)
-                        if not room:
-                            st.error("Sala não encontrada.")
-                        elif not verify_admin(room, key_input):
-                            st.error("Chave do organizador incorreta.")
-                        else:
-                            master_rooms().add(code_input)
-                            st.query_params["sala"] = code_input
-                            st.rerun()
+        admin_card()
 
     ui.features()
 
@@ -211,7 +249,8 @@ else:
         new_key = st.session_state.get("new_admin_keys", {}).get(current_room)
         if new_key:
             with st.container(key="adminkey"):
-                ui.admin_key_notice(current_room)
+                key_email, key_error = st.session_state.get("key_emails", {}).get(current_room, ("", "não enviado"))
+                ui.admin_key_notice(current_room, mask_email(key_email) if key_email and not key_error else "")
                 st.code(new_key, language="text")
                 if st.button("Já guardei a chave", icon=":material/check:"):
                     st.session_state["new_admin_keys"].pop(current_room, None)
@@ -227,6 +266,26 @@ else:
                 ("door", "gold", "Abertas" if is_open else "Encerradas", "Inscrições"),
                 ("gift", "red", "Não realizado" if is_open else "Realizado", "Sorteio"),
             ] + ([("calendar", "green", date_label, "Troca de presentes")] if date_label else []))
+
+            if room["owner_email"]:
+                owner_email = room["owner_email"].strip().lower()
+                owner_in = owner_email in {e.strip().lower() for e in participants.values()}
+                with st.container(key="selfjoin"):
+                    wants_in = st.toggle("🎁 Também vou participar do sorteio", value=owner_in, disabled=not is_open,
+                                         key=f"selfjoin_{current_room}_{owner_in}")
+                    st.caption(f"Como {room['owner_name'] or 'organizador'} ({mask_email(owner_email)}). "
+                               + ("Você recebe quem tirou por e-mail, como os outros."
+                                  if owner_in else "Você só organiza: não entra no sorteio."))
+                if is_open and wants_in != owner_in:
+                    with st.spinner("Atualizando..."):
+                        if wants_in:
+                            error = register_participant(current_room, room["owner_name"] or "Organizador", owner_email)
+                            if error:
+                                st.error(error)
+                                st.stop()
+                        else:
+                            remove_participant(current_room, owner_email)
+                    st.rerun()
 
             if not sender_email or not sender_pass:
                 st.error("⚠️ E-mail de envio não configurado. O sorteio só funciona no modo de teste.")
@@ -303,7 +362,7 @@ else:
                         st.error(error)
 
                 with st.expander("Adicionar participantes manualmente", icon=":material/person_add:", expanded=not participants):
-                    st.caption("Para quem não vai entrar pelo link. Se você também vai participar, adicione-se aqui.")
+                    st.caption("Para quem não vai entrar pelo link do convite.")
                     one_tab, list_tab = st.tabs(["Um por vez", "Colar uma lista"])
 
                     with one_tab:
@@ -371,7 +430,7 @@ else:
         with center:
             with st.container(key="card_guest"):
                 if room["status"] == "CLOSED":
-                    ui.invite_intro(room_name, date_label)
+                    ui.invite_intro(room_name, date_label, room["owner_name"])
                     ui.note("closed", "Inscrições encerradas 🚫",
                             "O sorteio já foi realizado. Se você confirmou presença, confira seu e-mail (e a caixa de spam).")
 
@@ -424,7 +483,7 @@ else:
                         set_answer(None)
 
                 else:
-                    ui.invite_intro(room_name, date_label)
+                    ui.invite_intro(room_name, date_label, room["owner_name"])
                     yes_col, no_col = st.columns(2)
                     if yes_col.button("Vou participar", type="primary", icon=":material/check_circle:", width="stretch"):
                         set_answer("yes")

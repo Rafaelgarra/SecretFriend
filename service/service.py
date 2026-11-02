@@ -94,6 +94,71 @@ def _build_message(sender, dest_email, giver, receiver, room):
     return msg
 
 
+def send_admin_key_email(sender, password, owner_name, owner_email, room, admin_key, panel_url):
+    """
+    Manda ao organizador o código e a chave da sala, para ele não perder o acesso ao painel.
+    Retorna None se deu certo, ou a mensagem de erro.
+    """
+    room_name = room.get("name") or "Amigo Secreto"
+    msg = EmailMessage()
+    msg["Subject"] = f"🔑 Chave do organizador - Sala {room['code']}"
+    msg["From"] = sender
+    msg["To"] = owner_email
+
+    msg.set_content(
+        f"Olá, {owner_name}!\n\n"
+        f"Sua sala \"{room_name}\" foi criada.\n\n"
+        f"Código da sala: {room['code']}\n"
+        f"Chave do organizador: {admin_key}\n\n"
+        f"Para abrir o painel: {panel_url}\n"
+        "Lá, use \"Sou o organizador\" com o código e a chave.\n\n"
+        "Não compartilhe a chave: com ela qualquer pessoa consegue sortear e gerenciar a sala."
+    )
+
+    o, n = html.escape(owner_name), html.escape(room_name)
+    c, k, u = html.escape(room["code"]), html.escape(admin_key), html.escape(panel_url, quote=True)
+    msg.add_alternative(f"""
+    <html>
+      <body style="margin:0;padding:32px 12px;background:#FFF8E6;font-family:Nunito,'Segoe UI',Arial,sans-serif;color:#1F2937;">
+        <div style="max-width:480px;margin:0 auto;background:#FFFFFF;border-radius:20px;overflow:hidden;box-shadow:0 6px 20px rgba(198,40,40,0.12);border:1px solid #F1E3C4;">
+          <div style="background:#C62828;padding:22px 24px;text-align:center;">
+            <div style="font-size:34px;line-height:1;">🔑</div>
+            <div style="color:#FFFFFF;font-size:22px;font-weight:800;margin-top:6px;">Sua sala foi criada!</div>
+            <div style="color:#FFE7A3;font-size:14px;margin-top:4px;">{n}</div>
+          </div>
+          <div style="padding:28px 24px;text-align:center;">
+            <p style="margin:0 0 18px;font-size:16px;">Olá, <b>{o}</b>! Guarde este e-mail: ele tem tudo o que você precisa para voltar ao painel.</p>
+            <table role="presentation" style="margin:0 auto 20px;border-collapse:separate;border-spacing:8px;">
+              <tr>
+                <td style="background:#FFF8E6;border:2px dashed #D4A017;border-radius:14px;padding:12px 18px;">
+                  <div style="font-size:12px;color:#6B7280;">Código da sala</div>
+                  <div style="font-size:20px;font-weight:800;color:#1F2937;letter-spacing:1px;">{c}</div>
+                </td>
+                <td style="background:#FFF8E6;border:2px dashed #D4A017;border-radius:14px;padding:12px 18px;">
+                  <div style="font-size:12px;color:#6B7280;">Chave do organizador</div>
+                  <div style="font-size:20px;font-weight:800;color:#C62828;letter-spacing:1px;white-space:nowrap;">{k}</div>
+                </td>
+              </tr>
+            </table>
+            <a href="{u}" style="display:inline-block;background:#C62828;color:#FFFFFF;text-decoration:none;font-weight:800;padding:12px 26px;border-radius:999px;">Abrir o painel do organizador</a>
+            <p style="margin:20px 0 0;font-size:13px;color:#6B7280;">🔒 Não compartilhe a chave: com ela qualquer pessoa consegue sortear e gerenciar a sala.</p>
+          </div>
+          <div style="background:#0E7C59;height:6px;"></div>
+        </div>
+      </body>
+    </html>
+    """, subtype='html')
+
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
+            server.login(sender, password)
+            server.send_message(msg)
+        return None
+    except Exception as e:
+        return str(e)
+
+
 def send_emails_backend(draw_dict, email_map, sender, password, room, test_mode, only=None):
     """
     Conecta ao SMTP e envia os e-mails um por um.
@@ -157,15 +222,16 @@ def _find_special_folder(mail, flag, fallbacks):
     return None
 
 
-def clean_sent_folder(username, password, recipient_list, room_code):
+def clean_sent_folder(username, password, recipient_list, room_code, quiet=False):
     """
     Move para a lixeira os e-mails do sorteio que ficaram na caixa de enviados, para manter o segredo.
-    Só apaga mensagens com o assunto desta sala, nada mais.
+    Só apaga mensagens com o assunto desta sala, nada mais. quiet=True não mostra nada na tela.
     """
     if not recipient_list: return
 
     status_text = st.empty()
-    status_text.info("🧹 Limpando rastros da caixa de saída...")
+    if not quiet:
+        status_text.info("🧹 Limpando rastros da caixa de saída...")
 
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
@@ -192,9 +258,11 @@ def clean_sent_folder(username, password, recipient_list, room_code):
         mail.close()
         mail.logout()
 
-        status_text.success(f"✨ Pronto! {len(ids)} e-mails removidos dos enviados.")
-        time.sleep(2)
+        if not quiet:
+            status_text.success(f"✨ Pronto! {len(ids)} e-mails removidos dos enviados.")
+            time.sleep(2)
         status_text.empty()
 
     except Exception as e:
-        status_text.warning(f"Não foi possível apagar os rastros automaticamente: {e}")
+        if not quiet:
+            status_text.warning(f"Não foi possível apagar os rastros automaticamente: {e}")
