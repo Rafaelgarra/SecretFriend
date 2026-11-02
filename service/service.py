@@ -256,9 +256,9 @@ def send_admin_key_email(sender, password, owner_name, owner_email, room, admin_
         return _smtp_error_message(e)
 
 
-def send_emails_backend(draw_dict, email_map, sender, password, room, test_mode, only=None):
+def send_emails_backend(draw_dict, email_map, sender, password, room, only=None):
     """
-    Conecta ao SMTP e envia os e-mails um por um.
+    Conecta ao e-mail de envio (API do Gmail ou SMTP) e envia os e-mails um por um.
     Retorna (enviados, falhas): listas de e-mails e de nomes, respectivamente.
     """
     givers = [g for g in draw_dict if only is None or g in only]
@@ -267,12 +267,6 @@ def send_emails_backend(draw_dict, email_map, sender, password, room, test_mode,
 
     progress = st.progress(0)
     status = st.empty()
-
-    if test_mode:
-        for giver in givers:
-            st.info(f"[TESTE] {giver} tirou {draw_dict[giver]} (simulação de envio para {email_map.get(giver, '?')})")
-        progress.empty()
-        return sent_list, failed
 
     try:
         with _open_mailer(sender, password) as server:

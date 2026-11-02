@@ -299,16 +299,13 @@ else:
                     st.rerun()
 
             if not email_ready:
-                st.error("⚠️ E-mail de envio não configurado. O sorteio só funciona no modo de teste.")
+                st.error("⚠️ E-mail de envio não configurado. O sorteio fica bloqueado até configurar.")
 
             if is_open:
-                test_mode = st.toggle("Modo de teste (sorteia na tela, sem enviar e sem fechar a sala)", value=False)
-                if st.button("Realizar sorteio", type="primary", icon=":material/shuffle:", width="stretch"):
+                if st.button("Realizar sorteio", type="primary", icon=":material/shuffle:", width="stretch",
+                             disabled=not email_ready):
                     if len(participants) < 2:
                         st.error("Mínimo de 2 pessoas!")
-                    elif test_mode:
-                        send_emails_backend(run_draw(participants.keys()), participants, sender_email, sender_pass, room_ctx, True)
-                        st.info("Modo de teste: nenhum e-mail foi enviado e a sala continua aberta.")
                     else:
                         with st.spinner("Conferindo o e-mail de envio..."):
                             login_error = check_email_login(sender_email, sender_pass)
@@ -318,7 +315,7 @@ else:
                             with st.spinner("Realizando sorteio e enviando e-mails..."):
                                 draw_result = run_draw(participants.keys())
                                 close_room(current_room, draw_result)
-                                sent_list, failed = send_emails_backend(draw_result, participants, sender_email, sender_pass, room_ctx, False)
+                                sent_list, failed = send_emails_backend(draw_result, participants, sender_email, sender_pass, room_ctx)
                                 clean_sent_folder(sender_email, sender_pass, sent_list, current_room)
                             st.session_state[f"failed_{current_room}"] = failed
                             if not failed:
@@ -420,7 +417,7 @@ else:
                         st.caption("Ele recebe de novo o mesmo resultado. Você não vê quem ele tirou.")
                         if st.button("Reenviar", icon=":material/send:"):
                             sent_list, still_failed = send_emails_backend(draw_result, participants, sender_email, sender_pass,
-                                                                          room_ctx, False, only=[target])
+                                                                          room_ctx, only=[target])
                             clean_sent_folder(sender_email, sender_pass, sent_list, current_room)
                             if still_failed:
                                 st.error(f"Falha ao reenviar para {target}.")
