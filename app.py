@@ -5,7 +5,7 @@ from datetime import date
 import ui
 from service.service import run_draw, clean_sent_folder, send_emails_backend, check_smtp_login
 from service.database import (create_room, get_room, verify_admin, add_participant, add_participants,
-                              get_participants, close_room, get_draw, get_secret)
+                              get_participants, close_room, get_draw, get_secret, add_decline, get_declines)
 
 DEFAULT_APP_URL = "https://appfriend-dyhgtzh8udytssfjcul2rh.streamlit.app/"
 
@@ -110,9 +110,9 @@ def invite_message(room_name, code, date_label, url, bold=False, with_url=True):
         lines.append(f"📅 Troca de presentes: {date_label}")
     lines.append(f"🔑 Código da sala: {b(code)}")
     if with_url:
-        lines += ["", "👉 Entre e confirme sua participação:", url]
+        lines += ["", "👉 Confirme ou recuse pelo link:", url]
     else:
-        lines += ["", "👉 Entre pelo link e confirme sua participação."]
+        lines += ["", "👉 Confirme ou recuse pelo link."]
     return "\n".join(lines)
 
 
@@ -136,7 +136,10 @@ if not current_room:
             ui.card_header("gift", "red", "Criar sala", "Organize um Amigo Secreto em minutos.")
             with st.form("create_room", border=False):
                 room_name = st.text_input("Nome da sala", placeholder="Ex.: Amigo Secreto da Equipe", max_chars=60)
-                draw_date = st.date_input("Data da troca (opcional)", value=None, min_value=date.today(), format="DD/MM/YYYY")
+                draw_date = st.date_input("Dia da troca de presentes (opcional)", value=None, min_value=date.today(),
+                                          format="DD/MM/YYYY",
+                                          help="Quando vocês vão se encontrar para trocar os presentes. "
+                                               "Aparece no convite, no painel e no e-mail do sorteio.")
                 if st.form_submit_button("Criar sala", type="primary", icon=":material/add:", width="stretch"):
                     if not sender_pass:
                         st.error("Erro de configuração de e-mail.")
@@ -188,7 +191,7 @@ if not current_room:
 
 else:
     if st.button("Voltar ao início", icon=":material/arrow_back:", type="tertiary"):
-        st.session_state.pop(f"joined_{current_room}", None)
+        st.session_state.pop(f"answer_{current_room}", None)
         st.query_params.clear()
         st.rerun()
 
@@ -276,12 +279,19 @@ else:
                 st.caption("Para Instagram ou outras redes, copie o texto abaixo:")
                 st.code(plain_text, language="text", wrap_lines=True)
 
+        # Quem recusou e depois confirmou aparece só como confirmado
+        confirmed_names = {n.strip().lower() for n in participants}
+        declines = [(n, m) for n, m in get_declines(current_room) if n.strip().lower() not in confirmed_names]
+
         with st.container(key="card_people"):
-            ui.card_header("users", "red", "Participantes confirmados", f"Total: {len(participants)}")
+            people_summary = f"{len(participants)} confirmado(s)" + (f" · {len(declines)} não vão" if declines else "")
+            ui.card_header("users", "red", "Respostas ao convite", people_summary)
             if participants:
                 ui.people_list([(name, mask_email(email)) for name, email in participants.items()])
             else:
-                st.caption("Aguardando participantes entrarem pelo link...")
+                st.caption("Aguardando participantes confirmarem pelo link...")
+            if declines:
+                ui.declined_list(declines)
 
             if is_open:
                 flash = st.session_state.pop(f"flash_{current_room}", None)
@@ -350,32 +360,73 @@ else:
 
     else:
         _, center, _ = st.container(key="guest_cols").columns([1, 1.6, 1])
+        # Etapas do convidado: None (convite) → "yes" (formulário) → "joined"; ou "no" (recusa) → "declined"
+        answer_key = f"answer_{current_room}"
+        answer = st.session_state.get(answer_key)
+
+        def set_answer(value):
+            st.session_state[answer_key] = value
+            st.rerun()
+
         with center:
             with st.container(key="card_guest"):
-                ui.card_header("users", "green", "Participar da sala", subtitle)
-
                 if room["status"] == "CLOSED":
+                    ui.invite_intro(room_name, date_label)
                     ui.note("closed", "Inscrições encerradas 🚫",
-                            "O sorteio já foi realizado. Se você se inscreveu, confira seu e-mail (e a caixa de spam).")
+                            "O sorteio já foi realizado. Se você confirmou presença, confira seu e-mail (e a caixa de spam).")
 
-                elif st.session_state.get(f"joined_{current_room}", False):
+                elif answer == "joined":
                     st.balloons()
-                    ui.note("success", "Tudo certo! ✅",
-                            "Você já está na lista. Fique de olho no seu e-mail (e no spam) para descobrir quem você tirou!")
+                    ui.note("success", "Presença confirmada! ✅",
+                            "Resposta enviada ao organizador. Fique de olho no seu e-mail (e no spam) para descobrir quem você tirou!")
                     st.write("")
-                    if st.button("Cadastrar outra pessoa", icon=":material/refresh:"):
-                        st.session_state[f"joined_{current_room}"] = False
-                        st.rerun()
+                    if st.button("Confirmar outra pessoa", icon=":material/person_add:"):
+                        set_answer(None)
 
-                else:
+                elif answer == "declined":
+                    ui.note("declined", "Resposta enviada ao organizador 💌",
+                            "Obrigado por avisar! Se mudar de ideia, ainda dá para entrar enquanto as inscrições estiverem abertas.")
+                    st.write("")
+                    if st.button("Mudei de ideia, quero participar", icon=":material/undo:"):
+                        set_answer("yes")
+
+                elif answer == "yes":
+                    ui.card_header("users", "green", "Confirmar presença", subtitle)
                     with st.form("guest_form", border=False):
                         g_name = st.text_input("Seu nome", placeholder="Ex.: Ana", max_chars=60)
                         g_email = st.text_input("E-mail", placeholder="Ex.: ana@exemplo.com")
-                        if st.form_submit_button("Participar", type="primary", icon=":material/check:", width="stretch"):
-                            with st.spinner("Carregando..."):
+                        st.caption("É para esse e-mail que vai chegar quem você tirou.")
+                        if st.form_submit_button("Confirmar presença", type="primary", icon=":material/check:", width="stretch"):
+                            with st.spinner("Enviando..."):
                                 error = register_participant(current_room, g_name, g_email)
                             if error:
                                 st.error(f"❌ {error}")
                             else:
-                                st.session_state[f"joined_{current_room}"] = True
-                                st.rerun()
+                                set_answer("joined")
+                    if st.button("Voltar", icon=":material/arrow_back:", type="tertiary"):
+                        set_answer(None)
+
+                elif answer == "no":
+                    ui.card_header("door", "red", "Não vou participar", subtitle)
+                    with st.form("decline_form", border=False):
+                        d_name = st.text_input("Seu nome", placeholder="Ex.: Ana", max_chars=60)
+                        d_message = st.text_area("Recado para o organizador (opcional)", max_chars=200,
+                                                 placeholder="Ex.: Vou estar viajando, fica pra próxima!")
+                        if st.form_submit_button("Enviar resposta", icon=":material/send:", width="stretch"):
+                            clean_name = " ".join(d_name.split())
+                            if not clean_name:
+                                st.error("❌ Diga seu nome para o organizador saber quem respondeu.")
+                            else:
+                                with st.spinner("Enviando..."):
+                                    add_decline(current_room, clean_name, d_message.strip())
+                                set_answer("declined")
+                    if st.button("Voltar", icon=":material/arrow_back:", type="tertiary"):
+                        set_answer(None)
+
+                else:
+                    ui.invite_intro(room_name, date_label)
+                    yes_col, no_col = st.columns(2)
+                    if yes_col.button("Vou participar", type="primary", icon=":material/check_circle:", width="stretch"):
+                        set_answer("yes")
+                    if no_col.button("Não vou participar", icon=":material/cancel:", width="stretch", key="decline_btn"):
+                        set_answer("no")

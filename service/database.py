@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+from datetime import datetime
 from cryptography.fernet import Fernet, InvalidToken
 
 # Colunas da aba "Salas": Código | Status | Hash da chave | Nome | Data | Sorteio (criptografado)
@@ -163,6 +164,31 @@ def add_participants(room_code, people):
     """Cadastra vários (nome, e-mail) de uma vez, numa única escrita na planilha."""
     if people:
         _participants_sheet().append_rows([[room_code, encrypt_data(n), encrypt_data(e)] for n, e in people])
+
+
+def _responses_sheet():
+    """Aba "Respostas" com quem recusou o convite. É criada na primeira recusa."""
+    sheet = get_connection()
+    try:
+        return sheet.worksheet("Respostas")
+    except gspread.WorksheetNotFound:
+        responses = sheet.add_worksheet(title="Respostas", rows=1000, cols=4)
+        responses.append_row(["Sala", "Nome", "Recado", "Data"])
+        return responses
+
+
+def add_decline(room_code, name, message=""):
+    _responses_sheet().append_row([room_code, encrypt_data(name), encrypt_data(message),
+                                   datetime.now().strftime("%Y-%m-%d %H:%M")])
+
+
+def get_declines(room_code):
+    """Lista de (nome, recado) de quem respondeu que não vai participar."""
+    try:
+        rows = get_connection().worksheet("Respostas").get_all_values()
+    except gspread.WorksheetNotFound:
+        return []
+    return [(decrypt_data(r[1]), decrypt_data(r[2])) for r in rows[1:] if len(r) >= 3 and r[0] == room_code]
 
 
 def get_participants(room_code):

@@ -141,6 +141,24 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 .asc-note.success h3 {{ color: {GREEN}; }}
 .asc-note.closed {{ background: #FDEFEC; border: 1px solid #F5C6C0; }}
 .asc-note.closed h3 {{ color: {RED}; }}
+.asc-note.declined {{ background: #FFF6DF; border: 1px solid #F1DFA6; }}
+.asc-note.declined h3 {{ color: #8A6608; }}
+
+/* Convite */
+.asc-invite {{ text-align: center; padding: 6px 4px 2px; }}
+.asc-invite-logo {{ width: 72px; height: 72px; filter: drop-shadow(0 8px 16px rgba(198,40,40,.25)); }}
+.asc-invite-kicker {{ margin: 12px 0 0; color: #6B7280; font-size: 1rem; }}
+.asc-invite h2 {{ margin: 2px 0 8px; padding: 0; font-size: 1.8rem; font-weight: 900; color: {RED}; line-height: 1.15; }}
+.asc-invite-date {{ display: inline-block; background: #EEF8F2; color: {GREEN}; font-weight: 800; border-radius: 999px; padding: 4px 14px; font-size: .92rem; }}
+.asc-invite-ask {{ margin: 18px 0 4px; font-weight: 800; color: {NAVY}; font-size: 1.1rem; }}
+.st-key-decline_btn button {{ border-color: #F5C6C0; color: {RED}; background: #fff; }}
+.st-key-decline_btn button:hover {{ border-color: {RED}; color: {RED}; background: #FDEFEC; }}
+.asc-declined {{ margin-top: 14px; padding-top: 12px; border-top: 1px dashed #EADBB8; }}
+.asc-declined p {{ margin: 0 0 8px; font-weight: 800; color: #6B7280; font-size: .9rem; }}
+.asc-declined-item {{ padding: 8px 14px; border-radius: 12px; background: #FAF7F2; margin-bottom: 6px; }}
+.asc-declined-item b {{ color: #6B7280; font-weight: 700; }}
+.asc-declined-item span {{ display: block; color: #6B7280; font-size: .85rem; font-style: italic; overflow-wrap: anywhere; }}
+
 .st-key-adminkey {{ border: 2px dashed {GOLD}; background: #FFF9E8; border-radius: 18px; padding: 16px 20px; }}
 .asc-key h4 {{ margin: 0; padding: 0; color: #8A6608; font-weight: 900; }}
 .asc-key p {{ margin: 4px 0 0; color: #4B5563; font-size: .92rem; }}
@@ -156,10 +174,10 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 
 /* Tablet: cartões da tela inicial um embaixo do outro, convidado centralizado */
 @media (max-width: 960px) {{
-  .st-key-home_cards [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
-  .st-key-home_cards [data-testid="stColumn"] {{ flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }}
-  .st-key-guest_cols [data-testid="stColumn"]:not(:nth-child(2)) {{ display: none; }}
-  .st-key-guest_cols [data-testid="stColumn"]:nth-child(2) {{ flex: 1 1 100% !important; width: 100% !important; max-width: 560px; margin: 0 auto; }}
+  .st-key-home_cards > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+  .st-key-home_cards > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{ flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }}
+  .st-key-guest_cols > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:not(:nth-child(2)) {{ display: none; }}
+  .st-key-guest_cols > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) {{ flex: 1 1 100% !important; width: 100% !important; max-width: 560px; margin: 0 auto; }}
   .asc-feature {{ flex: 0 1 calc(33.333% - 8px); }}
 }}
 
@@ -299,6 +317,29 @@ def people_list(people):
 
 def note(kind, title, text):
     st.html(f'<div class="asc-note {kind}"><h3>{html.escape(title)}</h3><p>{html.escape(text)}</p></div>')
+
+
+def invite_intro(room_name, date_label):
+    date_html = f'<span class="asc-invite-date">📅 Troca de presentes: {html.escape(date_label)}</span>' if date_label else ""
+    st.html(f"""
+    <div class="asc-invite">
+      {_svg_img(LOGO_SVG, "asc-invite-logo")}
+      <p class="asc-invite-kicker">Você foi convidado(a) para o</p>
+      <h2>{html.escape(room_name)}</h2>
+      {date_html}
+      <p class="asc-invite-ask">Vai participar do sorteio?</p>
+    </div>""")
+
+
+def declined_list(declines):
+    """declines: lista de (nome, recado)."""
+    rows = "".join(
+        f'<div class="asc-declined-item"><b>❌ {html.escape(name)}</b>'
+        + (f'<span>“{html.escape(message)}”</span>' if message else "")
+        + "</div>"
+        for name, message in declines
+    )
+    st.html(f'<div class="asc-declined"><p>Não vão participar</p>{rows}</div>')
 
 
 def admin_key_notice(code):
