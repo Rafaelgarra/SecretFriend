@@ -191,7 +191,7 @@ def remove_participant(room_code, email):
     participants_sheet = _participants_sheet()
     rows = participants_sheet.get_all_values()
     target = email.strip().lower()
-    matches = [i + 1 for i, r in enumerate(rows) if i > 0 and len(r) >= 3 and r[0] == room_code
+    matches = [i + 1 for i, r in enumerate(rows) if len(r) >= 3 and r[0] == room_code
                and decrypt_data(r[2]).strip().lower() == target]
     for row_number in reversed(matches):
         participants_sheet.delete_rows(row_number)
@@ -218,14 +218,15 @@ def get_declines(room_code):
         rows = _worksheet("Respostas").get_all_values()
     except gspread.WorksheetNotFound:
         return []
-    return [(decrypt_data(r[1]), decrypt_data(r[2])) for r in rows[1:] if len(r) >= 3 and r[0] == room_code]
+    return [(decrypt_data(r[1]), decrypt_data(r[2])) for r in rows if len(r) >= 3 and r[0] == room_code]
 
 
 def get_participants(room_code):
     all_rows = _participants_sheet().get_all_values()
 
     participants_map = {}
-    for row in all_rows[1:]:
+    # Sem pular a linha 1: a aba pode não ter cabeçalho, e um cabeçalho nunca bate com o código da sala
+    for row in all_rows:
         if len(row) >= 3 and row[0] == room_code:
             participants_map[decrypt_data(row[1])] = decrypt_data(row[2])
 
