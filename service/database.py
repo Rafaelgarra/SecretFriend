@@ -1,4 +1,5 @@
 import gspread
+from gspread.http_client import BackOffHTTPClient
 import streamlit as st
 import secrets
 import string
@@ -66,19 +67,27 @@ def get_connection():
     except Exception:
         creds_dict = None
 
+    # BackOffHTTPClient espera e tenta de novo quando o Google responde "muitas requisições" (429)
     if creds_dict:
-        client = gspread.service_account_from_dict(creds_dict)
+        client = gspread.service_account_from_dict(creds_dict, http_client=BackOffHTTPClient)
     else:
-        client = gspread.service_account(filename="service_account.json")
+        client = gspread.service_account(filename="service_account.json", http_client=BackOffHTTPClient)
     return client.open("AmigoSecretoDB")
 
 
+@st.cache_resource(ttl=3600)
+def _worksheet(title):
+    # No gspread 6 cada worksheet() relê os metadados da planilha; guardar a aba evita estourar
+    # a cota de leituras do Google (60 por minuto) com várias chamadas por página.
+    return get_connection().worksheet(title)
+
+
 def _rooms_sheet():
-    return get_connection().worksheet("Salas")
+    return _worksheet("Salas")
 
 
 def _participants_sheet():
-    return get_connection().worksheet("Participantes")
+    return _worksheet("Participantes")
 
 
 def _find_room_row(rooms_sheet, code):
@@ -190,11 +199,10 @@ def remove_participant(room_code, email):
 
 def _responses_sheet():
     """Aba "Respostas" com quem recusou o convite. É criada na primeira recusa."""
-    sheet = get_connection()
     try:
-        return sheet.worksheet("Respostas")
+        return _worksheet("Respostas")
     except gspread.WorksheetNotFound:
-        responses = sheet.add_worksheet(title="Respostas", rows=1000, cols=4)
+        responses = get_connection().add_worksheet(title="Respostas", rows=1000, cols=4)
         responses.append_row(["Sala", "Nome", "Recado", "Data"], table_range=APPEND_FROM)
         return responses
 
@@ -207,7 +215,7 @@ def add_decline(room_code, name, message=""):
 def get_declines(room_code):
     """Lista de (nome, recado) de quem respondeu que não vai participar."""
     try:
-        rows = get_connection().worksheet("Respostas").get_all_values()
+        rows = _worksheet("Respostas").get_all_values()
     except gspread.WorksheetNotFound:
         return []
     return [(decrypt_data(r[1]), decrypt_data(r[2])) for r in rows[1:] if len(r) >= 3 and r[0] == room_code]

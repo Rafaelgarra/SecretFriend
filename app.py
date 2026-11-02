@@ -102,19 +102,22 @@ def register_many(room_code, text):
     return len(to_add), errors
 
 
-def invite_message(room_name, code, date_label, url, bold=False, with_url=True):
-    """Texto do convite. bold=True usa o *negrito* do WhatsApp; as outras redes mostrariam os asteriscos."""
+def invite_message(room_name, code, date_label, url, owner_name="", bold=False, with_url=True):
+    """Texto do convite. bold=True usa o *negrito* do WhatsApp; as outras redes mostrariam os asteriscos.
+    Só emojis de 2 bytes (BMP): os de 4 bytes (🎁 🎄 📅) viram "�" no link de compartilhar do WhatsApp."""
     b = (lambda t: f"*{t}*") if bold else (lambda t: t)
-    lines = [f"🎁 {b('Você foi convidado(a) para o Amigo Secreto!')}"]
+    # Com o nome de quem convidou o link parece menos suspeito para quem recebe
+    headline = f"{owner_name} te convidou para o Amigo Secreto!" if owner_name else "Você foi convidado(a) para o Amigo Secreto!"
+    lines = [f"✨ {b(headline)}"]
     if room_name and room_name != "Amigo Secreto":
-        lines.append(f"🎄 {room_name}")
+        lines.append(f"❄️ {room_name}")
     if date_label:
-        lines.append(f"📅 Troca de presentes: {date_label}")
-    lines.append(f"🔑 Código da sala: {b(code)}")
+        lines.append(f"⏰ Troca de presentes: {date_label}")
+    lines.append(f"#️⃣ Código da sala: {b(code)}")
     if with_url:
-        lines += ["", "👉 Confirme ou recuse pelo link:", url]
+        lines += ["", "➡️ Confirme ou recuse pelo link:", url]
     else:
-        lines += ["", "👉 Confirme ou recuse pelo link."]
+        lines += ["", "➡️ Confirme ou recuse pelo link."]
     return "\n".join(lines)
 
 
@@ -333,14 +336,14 @@ else:
             with st.container(key="card_invite"):
                 ui.card_header("link", "green", "Enviar convite", "Compartilhe o link para as pessoas entrarem na sala.")
                 invite_url = f"{app_url}/?sala={current_room}"
-                plain_text = invite_message(room_name, current_room, date_label, invite_url)
-                ui.native_share_button(f"Amigo Secreto · Sala {current_room}",
-                                       invite_message(room_name, current_room, date_label, invite_url, with_url=False),
+                plain_text = invite_message(room_name, current_room, date_label, invite_url, room["owner_name"])
+                ui.native_share_button(f"Convite de {room['owner_name']} · Amigo Secreto" if room["owner_name"] else f"Amigo Secreto · Sala {current_room}",
+                                       invite_message(room_name, current_room, date_label, invite_url, room["owner_name"], with_url=False),
                                        invite_url)
                 ui.share_buttons(
-                    whatsapp=invite_message(room_name, current_room, date_label, invite_url, bold=True),
+                    whatsapp=invite_message(room_name, current_room, date_label, invite_url, room["owner_name"], bold=True),
                     twitter=plain_text,
-                    telegram=invite_message(room_name, current_room, date_label, invite_url, with_url=False),
+                    telegram=invite_message(room_name, current_room, date_label, invite_url, room["owner_name"], with_url=False),
                     url=invite_url,
                 )
                 st.caption("Para Instagram ou outras redes, copie o texto abaixo:")

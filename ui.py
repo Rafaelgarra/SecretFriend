@@ -268,7 +268,7 @@ def share_buttons(whatsapp, twitter, telegram, url):
     q = urllib.parse.quote
     st.html(f"""
     <div class="asc-share">
-      <a class="wa" href="https://wa.me/?text={q(whatsapp)}" target="_blank">📱 WhatsApp</a>
+      <a class="wa" href="https://api.whatsapp.com/send?text={q(whatsapp)}" target="_blank">📱 WhatsApp</a>
       <a class="fb" href="https://www.facebook.com/sharer/sharer.php?u={q(url)}" target="_blank">📘 Facebook</a>
       <a class="tw" href="https://twitter.com/intent/tweet?text={q(twitter)}" target="_blank">✖️ X / Twitter</a>
       <a class="tg" href="https://t.me/share/url?url={q(url)}&text={q(telegram)}" target="_blank">✈️ Telegram</a>
