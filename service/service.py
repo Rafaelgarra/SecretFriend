@@ -10,6 +10,7 @@ from email.message import EmailMessage
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
+SMTP_STARTTLS_PORT = 587
 IMAP_SERVER = "imap.gmail.com"
 
 _rng = random.SystemRandom()
@@ -34,17 +35,52 @@ def run_draw(names):
     return dict(zip(givers, receivers))
 
 
+def _smtp_login(sender, password):
+    """
+    Conecta e faz login no Gmail. Tenta SSL na porta 465 e, se o servidor fechar a conexão,
+    STARTTLS na 587. Senha recusada não adianta tentar de novo, então sobe direto.
+    """
+    context = ssl.create_default_context()
+    errors = []
+    attempts = [
+        ("porta 465", lambda: smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context, timeout=20)),
+        ("porta 587", lambda: smtplib.SMTP(SMTP_SERVER, SMTP_STARTTLS_PORT, timeout=20)),
+    ]
+    for label, connect in attempts:
+        server = None
+        try:
+            server = connect()
+            if label == "porta 587":
+                server.starttls(context=context)
+            server.login(sender, password)
+            return server
+        except smtplib.SMTPAuthenticationError:
+            raise
+        except Exception as e:
+            errors.append(f"{label}: {type(e).__name__}: {e}")
+            if server is not None:
+                try: server.close()
+                except Exception: pass
+    raise ConnectionError(" | ".join(errors))
+
+
+def _smtp_error_message(e):
+    if isinstance(e, smtplib.SMTPAuthenticationError):
+        return ("o Gmail recusou o usuário ou a senha de app (confira EMAIL_REMETENTE e EMAIL_PASSWORD "
+                f"nos secrets): {e}")
+    return str(e)
+
+
 def check_smtp_login(sender, password):
     """
     Testa as credenciais antes do sorteio, para não fechar a sala se o envio for falhar.
     """
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
-            server.login(sender, password)
+        with _smtp_login(sender, password):
+            pass
         return None
     except Exception as e:
-        return str(e)
+        return _smtp_error_message(e)
 
 
 def _build_message(sender, dest_email, giver, receiver, room):
@@ -150,13 +186,11 @@ def send_admin_key_email(sender, password, owner_name, owner_email, room, admin_
     """, subtype='html')
 
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
-            server.login(sender, password)
+        with _smtp_login(sender, password) as server:
             server.send_message(msg)
         return None
     except Exception as e:
-        return str(e)
+        return _smtp_error_message(e)
 
 
 def send_emails_backend(draw_dict, email_map, sender, password, room, test_mode, only=None):
@@ -178,10 +212,7 @@ def send_emails_backend(draw_dict, email_map, sender, password, room, test_mode,
         return sent_list, failed
 
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
-            server.login(sender, password)
-
+        with _smtp_login(sender, password) as server:
             for i, giver in enumerate(givers):
                 status.text(f"Enviando para {giver}...")
                 progress.progress((i + 1) / len(givers))

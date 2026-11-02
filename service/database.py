@@ -19,6 +19,10 @@ COL_DRAW = 6
 COL_OWNER_NAME = 7
 COL_OWNER_EMAIL = 8
 
+# Sem isso o Sheets procura a "tabela" na aba inteira e, se uma linha tiver células vazias no meio,
+# grava a próxima deslocada para outras colunas (o código da sala some da coluna A).
+APPEND_FROM = "A1"
+
 CODE_CHARS = string.ascii_uppercase + string.digits
 KEY_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sem 0/O e 1/I para evitar confusão
 
@@ -101,7 +105,7 @@ def create_room(name="", draw_date="", owner_name="", owner_email=""):
     admin_key = f"{admin_key[:4]}-{admin_key[4:]}"
 
     rooms_sheet.append_row([code, "OPEN", _hash_admin_key(code, admin_key), name, draw_date, "",
-                            encrypt_data(owner_name), encrypt_data(owner_email)])
+                            encrypt_data(owner_name), encrypt_data(owner_email)], table_range=APPEND_FROM)
     return code, admin_key
 
 
@@ -163,13 +167,14 @@ def get_draw(code):
 
 
 def add_participant(room_code, name, email):
-    _participants_sheet().append_row([room_code, encrypt_data(name), encrypt_data(email)])
+    _participants_sheet().append_row([room_code, encrypt_data(name), encrypt_data(email)], table_range=APPEND_FROM)
 
 
 def add_participants(room_code, people):
     """Cadastra vários (nome, e-mail) de uma vez, numa única escrita na planilha."""
     if people:
-        _participants_sheet().append_rows([[room_code, encrypt_data(n), encrypt_data(e)] for n, e in people])
+        _participants_sheet().append_rows([[room_code, encrypt_data(n), encrypt_data(e)] for n, e in people],
+                                          table_range=APPEND_FROM)
 
 
 def remove_participant(room_code, email):
@@ -190,13 +195,13 @@ def _responses_sheet():
         return sheet.worksheet("Respostas")
     except gspread.WorksheetNotFound:
         responses = sheet.add_worksheet(title="Respostas", rows=1000, cols=4)
-        responses.append_row(["Sala", "Nome", "Recado", "Data"])
+        responses.append_row(["Sala", "Nome", "Recado", "Data"], table_range=APPEND_FROM)
         return responses
 
 
 def add_decline(room_code, name, message=""):
     _responses_sheet().append_row([room_code, encrypt_data(name), encrypt_data(message),
-                                   datetime.now().strftime("%Y-%m-%d %H:%M")])
+                                   datetime.now().strftime("%Y-%m-%d %H:%M")], table_range=APPEND_FROM)
 
 
 def get_declines(room_code):
